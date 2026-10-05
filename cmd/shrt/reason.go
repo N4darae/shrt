@@ -88,14 +88,14 @@ func (r reason) in(s said) string {
 	group := s.rpc != ""
 	name := func(step, call, profile string) string {
 		if !group {
-			return fmt.Sprintf("%s %s (%s)%s", rw(call), step, shortRPC(call), asText(profile))
+			return fmt.Sprintf("%s %s (%s)%s", rw(call), step, chain.RPCName(call), asText(profile))
 		}
 		out := ""
 		if step != s.step {
 			out = rw(call) + " " + step
 		}
 		if shortRPC(call) != s.rpc {
-			out += " (" + shortRPC(call) + ")"
+			out += " (" + chain.RPCName(call) + ")"
 		}
 		return strings.TrimSpace(out + asText(profile))
 	}
@@ -126,7 +126,7 @@ func (r reason) in(s said) string {
 		return "knock-on of " + name(r.Step, r.RPC, "")
 	}
 	who, detail, rest := name(r.Step, r.RPC, r.Profile), r.detail(), ""
-	if r.Kind != reasonWrite {
+	if r.Kind != reasonWrite && (!s.row || s.head == nil) {
 		rest = ": " + detail
 	}
 	switch h := s.head; {
@@ -134,7 +134,7 @@ func (r reason) in(s said) string {
 		return who + detail
 	case group:
 		return who + ": " + detail
-	case h != nil && r.Kind == reasonStored && chain.EdgeQuoted(r.Want) == h.Want && chain.EdgeQuoted(r.Got) == h.Got && chain.RPCName(r.ReadRPC) == chain.RPCName(h.Call):
+	case h != nil && !s.row && r.Kind == reasonStored && chain.EdgeQuoted(r.Want) == h.Want && chain.EdgeQuoted(r.Got) == h.Got && chain.RPCName(r.ReadRPC) == chain.RPCName(h.Call):
 		return "suspect " + who + ": stores other than it answered"
 	case h != nil && r.Step == h.Step:
 		return "suspect the " + rw(r.RPC) + asText(r.Profile) + rest
@@ -188,7 +188,7 @@ func requestLine(r reason, step string, sent func(string) string) string {
 		at = r.Step
 	}
 	if body := sent(at); body != "" {
-		return at + body
+		return capText(at+body, lineMax-4)
 	}
 	return ""
 }
@@ -233,7 +233,7 @@ func tellApart(e *env, r reason, path string) string {
 	}
 	var via []string
 	for _, t := range reads {
-		via = append(via, shortRPC(t.method.FullName)+" ("+t.path+")")
+		via = append(via, chain.RPCName(t.method.FullName)+" ("+t.path+")")
 	}
 	if len(via) == 0 && r.Other == asSent {
 		return fmt.Sprintf("%s answered %s as sent; only %s differs", r.Step, field, chain.RPCName(r.ReadRPC))

@@ -160,7 +160,7 @@ func runRun(ctx context.Context, args []string) (err error) {
 		}
 		savedPath = path
 		if !*asJSON && !*quiet {
-			fmt.Printf("\nrun %s -> %s\n", rec.RunID, path)
+			fmt.Printf("\nrun %s\n", shownPath(path))
 		}
 	}
 	if *asJSON {
@@ -207,7 +207,7 @@ func runRun(ctx context.Context, args []string) (err error) {
 	if *quiet {
 		fmt.Println(runSummary(e, quietRecord(rec), *dry, false, lead, finding))
 		if savedPath != "" && !quietlyGreen(rec) {
-			fmt.Printf("  run %s -> %s\n", rec.RunID, savedPath)
+			fmt.Printf("  run %s\n", shownPath(savedPath))
 		}
 	} else {
 		fmt.Println(runSummary(e, rec, *dry, true, lead, finding))
@@ -485,13 +485,13 @@ func executeChain(ctx context.Context, e *env, c *chain.Chain, opts runner.Optio
 		return rec, err
 	}
 	for _, src := range behindOrder {
-		line := fmt.Sprintf("%d step(s) unevaluated behind %s", behind[src], src)
+		line := fmt.Sprintf("%s unevaluated behind %s", plural(behind[src], "step"), src)
 		if len(answered[src]) > 0 {
 			line += ": " + chain.ListSome(answered[src], 3)
 		}
 		fmt.Println(line)
 	}
-	fmt.Printf("%d step(s) passed (-v prints every step)\n", passed)
+	fmt.Printf("%s passed\n", plural(passed, "step"))
 	return rec, nil
 }
 
@@ -549,7 +549,7 @@ func progressLine(sr *runner.StepRecord, dry bool, idWidth ...int) string {
 	if len(idWidth) > 0 && idWidth[0] > w {
 		w = idWidth[0]
 	}
-	line := fmt.Sprintf("%-5s %2d %-*s %-52s %4dms", statusMark(sr.Status, dry), sr.Index, w, sr.ID, sr.Call, sr.LatencyMS)
+	line := fmt.Sprintf("%-5s %2d %-*s %s %dms", statusMark(sr.Status, dry), sr.Index, w, sr.ID, chain.RPCName(sr.Call), sr.LatencyMS)
 	if sr.WaitedMS > 0 {
 		line += fmt.Sprintf("  (sent after waiting %s)", (time.Duration(sr.WaitedMS) * time.Millisecond).Round(time.Millisecond))
 	}
@@ -581,7 +581,7 @@ func pinItLine(e *env, ref string, c *chain.Chain, rec *runner.Record) string {
 	if len(expectationFailures(rec)) == 0 {
 		return ""
 	}
-	return "pin it: shrt chain pin " + ref + " (re-runs with -keep-going when needed)"
+	return "pin it: shrt chain pin " + ref
 }
 
 func neverRanLine(c *chain.Chain, rec *runner.Record) string {
@@ -603,8 +603,7 @@ func neverRanLine(c *chain.Chain, rec *runner.Record) string {
 	if len(left) == 0 {
 		return ""
 	}
-	return fmt.Sprintf("%d later step(s) were not run (%s): this failure may not be the only one; run with -keep-going to see them",
-		len(left), chain.ListSome(left, 3))
+	return fmt.Sprintf("not run: %s (%s); -keep-going runs them", plural(len(left), "later step"), chain.ListSome(left, 3))
 }
 
 func runSummary(e *env, rec *runner.Record, dry, stepsShown bool, lead string, finding bool) string {
@@ -641,14 +640,11 @@ func runSummary(e *env, rec *runner.Record, dry, stepsShown bool, lead string, f
 	if len(rec.FailedSteps) > 0 {
 		fmt.Fprintf(&b, "\n  did not pass: %s", chain.ListSome(rec.FailedSteps, 10))
 	}
-	if failure := rec.Failure; failure != "" {
-		if stepsShown && rec.KeptRed != "" {
-			failure, _, _ = strings.Cut(failure, "\n")
-			failure += " (each step's failure is on its line above)"
-		} else if stepsShown && rec.KeepGoing && strings.HasPrefix(failure, "-keep-going: ") {
-			failure, _, _ = strings.Cut(failure, "\n")
-			failure += " (above)"
-		}
+	failure := rec.Failure
+	if stepsShown {
+		failure = notAbove(failure)
+	}
+	if failure != "" {
 		fmt.Fprintf(&b, "\n  %s", strings.ReplaceAll(failure, "\n", "\n  "))
 	}
 	for _, line := range failureRequests(e, rec, dry) {
@@ -663,16 +659,26 @@ func runSummary(e *env, rec *runner.Record, dry, stepsShown bool, lead string, f
 	if len(rec.Exports) > 0 {
 		names := sortedKeys(rec.Exports)
 		if dry {
-			fmt.Fprintf(&b, "\n  exports not produced in a dry run (nothing was sent, so no response exists to read them from): %s",
-				strings.Join(names, ", "))
+			fmt.Fprintf(&b, "\n  exports not produced in a dry run: %s", strings.Join(names, ", "))
 			return b.String()
 		}
-		b.WriteString("\n  exports:")
+		line := "exports:"
 		for _, k := range names {
-			fmt.Fprintf(&b, " %s=%s", k, exportJSON(rec.Exports[k]))
+			line += fmt.Sprintf(" %s=%s", k, exportJSON(rec.Exports[k]))
 		}
+		b.WriteString("\n  " + capText(line, lineMax-2))
 	}
 	return b.String()
+}
+
+func notAbove(failure string) string {
+	kept := []string{}
+	for _, line := range strings.Split(failure, "\n") {
+		if !strings.HasPrefix(line, "step \"") && !strings.HasPrefix(line, "the same for ") {
+			kept = append(kept, line)
+		}
+	}
+	return strings.Join(kept, "\n")
 }
 
 func failureRequests(e *env, rec *runner.Record, dry bool) []string {
@@ -697,7 +703,7 @@ func failureRequests(e *env, rec *runner.Record, dry bool) []string {
 		}
 		failures = append(failures, failure{st, r, path})
 	}
-	lines, hints, count, order, named := map[string]string{}, map[string]string{}, map[string]int{}, []string{}, map[string]bool{}
+	lines, hints, count, order, named := map[string][]string{}, map[string]string{}, map[string]int{}, []string{}, map[string]bool{}
 	for _, f := range failures {
 		key, w := "", f.r.blamed(f.st.ID)
 		switch {
@@ -711,19 +717,19 @@ func failureRequests(e *env, rec *runner.Record, dry bool) []string {
 		if _, seen := count[key]; !seen {
 			order = append(order, key)
 		}
-		if lines[key] == "" || !named[key] && f.r.Kind != "" {
-			lines[key], named[key], hints[key] = requestLine(f.r, f.st.ID, recordSent(e, rec)), f.r.Kind != "", tellApart(e, f.r, f.path)
-			if s := f.r.String(); s != "" && lines[key] != "" {
-				lines[key] = s + "; " + lines[key]
+		if len(lines[key]) == 0 || !named[key] && f.r.Kind != "" {
+			lines[key], named[key], hints[key] = nil, f.r.Kind != "", tellApart(e, f.r, f.path)
+			if req := requestLine(f.r, f.st.ID, recordSent(e, rec)); req != "" {
+				lines[key] = append(slices.DeleteFunc([]string{f.r.String()}, func(s string) bool { return s == "" }), req)
 			}
 		}
 		count[key]++
 	}
 	sort.SliceStable(order, func(i, j int) bool { return count[order[i]] > count[order[j]] })
-	out, hint := []string{}, ""
+	out, hint, shown := []string{}, "", 0
 	for _, key := range order {
-		if lines[key] != "" && len(out) < 3 {
-			out = append(out, lines[key])
+		if len(lines[key]) > 0 && shown < 3 {
+			out, shown = append(out, lines[key]...), shown+1
 			hint = cmp.Or(hint, hints[key])
 		}
 	}

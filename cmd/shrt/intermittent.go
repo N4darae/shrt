@@ -236,7 +236,7 @@ func (i *intermittentFailure) calls() string {
 	for _, f := range i.steps {
 		if !seen[f.step.Call] {
 			seen[f.step.Call] = true
-			out = append(out, shortRPC(f.step.Call))
+			out = append(out, chain.RPCName(f.step.Call))
 		}
 	}
 	return strings.Join(out, ", ")
@@ -261,7 +261,7 @@ func (i *intermittentFailure) kind() string {
 func (i *intermittentFailure) short() string {
 	parts := []string{}
 	for _, r := range i.rates() {
-		parts = append(parts, shortRPC(r.Call)+" ("+r.text()+")")
+		parts = append(parts, chain.RPCName(r.Call)+" ("+r.text()+")")
 	}
 	return i.kind() + " failure at " + strings.Join(parts, ", ")
 }
@@ -286,12 +286,11 @@ func (i *intermittentFailure) rates() []gateFlaky {
 	return out
 }
 
-func findingMeaning(repeated bool, where string) string {
+func findingMeaning(repeated bool) string {
 	if repeated {
-		return "the backend fails this rpc at the same calls every run, not by chance: a defect in the backend, and a re-run fails the same way"
+		return "a backend defect, a re-run fails the same way"
 	}
-	return "a backend defect (flaky under load, an exhausted pool, a race), not a deterministic regression at " + where +
-		"; a re-run may pass and does not clear it"
+	return "a backend defect, a re-run may pass but does not clear it"
 }
 
 func (i *intermittentFailure) line(explain bool) string {
@@ -316,18 +315,18 @@ func (i *intermittentFailure) line(explain bool) string {
 	if i.repeated() {
 		why := ""
 		if explain {
-			why = ", so " + findingMeaning(true, "")
+			why = ": " + findingMeaning(true)
 		}
 		return fmt.Sprintf("repeated failure at %s: %s%s%s; %s", i.calls(), i.steps[0].repeated, why, hidden, strings.Join(each, "; "))
 	}
-	how := "the backend fails this rpc on some calls and answers it on others"
+	how := []string{}
 	if i.rate != "" {
-		how = i.rate
+		how = append(how, i.rate)
 	}
 	if explain {
-		how += ", " + findingMeaning(false, "that step")
+		how = append(how, findingMeaning(false))
 	}
-	return fmt.Sprintf("intermittent failure at %s: %s%s; %s", i.calls(), how, hidden, strings.Join(each, "; "))
+	return fmt.Sprintf("intermittent failure at %s%s%s; %s", i.calls(), strings.Join(append([]string{""}, how...), ": "), hidden, strings.Join(each, "; "))
 }
 
 func serverErrors(rec *runner.Record) []gateFlaky {

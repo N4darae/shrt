@@ -1,54 +1,56 @@
 $ shrt run probe-orders  [exit 0]
-ok     1 create_customer          shop.customers.v1.CustomerService/CreateCustomer DUR
-ok     2 create_product           shop.catalog.v1.ProductService/CreateProduct DUR
-ok     3 create_product_2         shop.catalog.v1.ProductService/CreateProduct DUR
-ok     4 add_stock                shop.catalog.v1.StockService/AddStock DUR
-ok     5 create_order_single      shop.orders.v1.OrderService/CreateOrder DUR
-ok     6 retry_single             shop.orders.v1.OrderService/CreateOrder DUR
-ok     7 create_order_three       shop.orders.v1.OrderService/CreateOrder DUR
-ok     8 cancel_pending           shop.orders.v1.OrderService/CancelOrder DUR
-ok     9 confirm_single           shop.orders.v1.OrderService/ConfirmOrder DUR
-ok    10 cancel_confirmed         shop.orders.v1.OrderService/CancelOrder DUR
+ok     1 create_customer          CreateCustomer DUR
+ok     2 create_product           CreateProduct DUR
+ok     3 create_product_2         CreateProduct DUR
+ok     4 add_stock                AddStock DUR
+ok     5 create_order_single      CreateOrder DUR
+ok     6 retry_single             CreateOrder DUR
+ok     7 create_order_three       CreateOrder DUR
+ok     8 cancel_pending           CancelOrder DUR
+ok     9 confirm_single           ConfirmOrder DUR
+ok    10 cancel_confirmed         CancelOrder DUR
 
-run RUNID -> TMP
+run .shrt/runs/probe-orders/RUNID.json
 probe-orders: PASSED in DUR
 
 $ shrt run probe-orders -quiet  [exit 0]
 probe-orders: PASSED in DUR
 
 $ shrt run probe-orders  [exit 1]
-ok     1 create_customer          shop.customers.v1.CustomerService/CreateCustomer DUR
-ok     2 create_product           shop.catalog.v1.ProductService/CreateProduct DUR
-ok     3 create_product_2         shop.catalog.v1.ProductService/CreateProduct DUR
-ok     4 add_stock                shop.catalog.v1.StockService/AddStock DUR
-ok     5 create_order_single      shop.orders.v1.OrderService/CreateOrder DUR
-ok     6 retry_single             shop.orders.v1.OrderService/CreateOrder DUR
-ok     7 create_order_three       shop.orders.v1.OrderService/CreateOrder DUR
-ok     8 cancel_pending           shop.orders.v1.OrderService/CancelOrder DUR
-ok     9 confirm_single           shop.orders.v1.OrderService/ConfirmOrder DUR
-FAIL  10 cancel_confirmed         shop.orders.v1.OrderService/CancelOrder DUR
+ok     1 create_customer          CreateCustomer DUR
+ok     2 create_product           CreateProduct DUR
+ok     3 create_product_2         CreateProduct DUR
+ok     4 add_stock                AddStock DUR
+ok     5 create_order_single      CreateOrder DUR
+ok     6 retry_single             CreateOrder DUR
+ok     7 create_order_three       CreateOrder DUR
+ok     8 cancel_pending           CancelOrder DUR
+ok     9 confirm_single           ConfirmOrder DUR
+FAIL  10 cancel_confirmed         CancelOrder DUR
        FAIL status.code want=SUCCESS got=REJECTED (message="StillConfirmed")
 
-run RUNID -> TMP
+run .shrt/runs/probe-orders/RUNID.json
 probe-orders: FAILED in DUR
-  step "cancel_confirmed": expectation failed: status.code want=SUCCESS got=REJECTED (message="StillConfirmed")
-  suspect write cancel_confirmed (OrderService/CancelOrder); cancel_confirmed sent {"id_order":"ord-0024"}
-pin it: shrt chain pin probe-orders (re-runs with -keep-going when needed)
+  suspect write cancel_confirmed (CancelOrder)
+  cancel_confirmed sent {"id_order":"ord-0024"}
+pin it: shrt chain pin probe-orders
 
 $ shrt run probe-orders -quiet  [exit 1]
 probe-orders: FAILED in DUR
   step "cancel_confirmed": expectation failed: status.code want=SUCCESS got=REJECTED (message="StillConfirmed")
-  suspect write cancel_confirmed (OrderService/CancelOrder); cancel_confirmed sent {"id_order":"ord-0029"}
-  run RUNID -> TMP
-pin it: shrt chain pin probe-orders (re-runs with -keep-going when needed)
+  suspect write cancel_confirmed (CancelOrder)
+  cancel_confirmed sent {"id_order":"ord-0029"}
+  run .shrt/runs/probe-orders/RUNID.json
+pin it: shrt chain pin probe-orders
 
 $ shrt run probe-orders -repeat 2  [exit 0]
 repeat 1 of 2: run RUNID failed at cancel_confirmed
 repeat 2 of 2: run RUNID failed at cancel_confirmed, as run 1
 reproduced 2/2: cancel_confirmed failed the same way in every run
-  cancel_confirmed (OrderService/CancelOrder): answered status.code "REJECTED" message="StillConfirmed"
+  cancel_confirmed (CancelOrder): answered status.code "REJECTED" message="StillConfirmed"
     failed: status.code want=SUCCESS got=REJECTED
-  suspect write cancel_confirmed (OrderService/CancelOrder); cancel_confirmed sent {"id_order":"ord-0034"}
-  runs RUNID, RUNID in .shrt/runs/probe-orders; the chain ran as written and is unchanged
-exit 0: reproduced 2/2; -repeat exits 0 when every run failed the same way, 1 when the runs differ or none failed, 3 when a run got no answer
+  suspect write cancel_confirmed (CancelOrder)
+  cancel_confirmed sent {"id_order":"ord-0034"}
+  runs RUNID, RUNID in .shrt/runs/probe-orders
+exit 0: reproduced 2/2
 

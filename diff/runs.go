@@ -603,17 +603,17 @@ func (r *RunReport) Text() string {
 	if len(r.RequestChanges) > 0 {
 		fmt.Fprintf(&b, "%d request difference(s), what the two runs SENT, in steps both reached:\n", len(r.RequestChanges))
 		for _, c := range r.RequestChanges {
-			fmt.Fprintf(&b, "  [%s] %-10s %s %s\n", c.Step, c.Kind, c.Path, c.DescribeRuns())
+			fmt.Fprintf(&b, "  [%s] %s %s %s\n", c.Step, c.Kind, c.Path, c.DescribeRuns())
 		}
 	}
 	if len(r.Changes) > 0 {
 		fmt.Fprintf(&b, "%d response difference(s) in steps both runs reached:\n", len(r.Changes))
 		for _, c := range r.Changes {
 			detail := ""
-			if c.Detail != "" {
+			if c.Detail != "" && c.Detail != VolatileFailed {
 				detail = " (" + c.Detail + ")"
 			}
-			fmt.Fprintf(&b, "  [%s] %-10s %s %s%s\n", c.Step, c.Kind, c.Path, r.describe(c), detail)
+			fmt.Fprintf(&b, "  [%s] %s %s %s%s\n", c.Step, c.Kind, c.Path, r.describe(c), detail)
 		}
 	}
 	if len(r.UndeclaredUnknown) > 0 {
@@ -660,9 +660,6 @@ func (s StepStatus) errors() string {
 }
 
 func (c Change) DescribeRuns() string {
-	if c.Kind == KindLength {
-		return fmt.Sprintf("a=%v item(s) b=%v item(s)", c.Want, c.Got)
-	}
 	if c.Kind != KindType {
 		return fmt.Sprintf("a=%v b=%v", c.Want, c.Got)
 	}

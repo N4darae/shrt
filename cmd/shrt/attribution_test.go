@@ -589,7 +589,7 @@ func TestAttributionNamesTheSuspectByKind(t *testing.T) {
 		}, step: "watch_order", path: "messages.0.order.total_minor", kind: reasonWrite, blamed: "create_order"},
 		{name: "a step held back by a read is never filed under that read as a write", env: "shop", rec: heldRead, step: "get_again", path: "product.qty_on_hand", kind: reasonKnockOn, blamed: "",
 			check: func(r reason) bool {
-				return r.Read == "get" && r.String() == "knock-on of read get (ProductService/GetProduct)"
+				return r.Read == "get" && r.String() == "knock-on of read get (GetProduct)"
 			}},
 		{name: "a step held back by a read unclear between writes waits on the read", env: "effects", moved: changed("get", "product.qty_on_hand", "8", "7"), rec: heldReadAfterConfirm, step: "get_again", path: "product.qty_on_hand", kind: reasonKnockOn, blamed: "",
 			check: func(r reason) bool { return r.Read == "get" }},
@@ -688,7 +688,7 @@ func TestAttributionNamesTheSuspectByKind(t *testing.T) {
 		}, step: "get", path: "product.qty_on_hand", kind: reasonUnclear, blamed: "add_stock", check: func(r reason) bool { return shortRPC(r.rpc(shopGet)) == "StockService/AddStock" }},
 		{name: "a kept-red read after two movers the contracts name is unclear between them and the batch that answered the field, earliest first", env: "effects", pinned: true, rec: twoMovers(false), step: "get_b", path: "product.qty_on_hand", kind: reasonUnclear, blamed: "add_stock_batch",
 			check: func(r reason) bool {
-				return r.String() == "unclear: write add_stock_batch (StockService/AddStockBatch) or confirm_order (OrderService/ConfirmOrder) +1 more" && orSteps("add_stock_batch", "confirm_order", "cancel_order")(r)
+				return r.String() == "unclear: write add_stock_batch (AddStockBatch) or confirm_order (ConfirmOrder) +1 more" && orSteps("add_stock_batch", "confirm_order", "cancel_order")(r)
 			}},
 		{name: "against a reference a read after a batch that answered the field as before names the batch and the later mover, not a changed write that leaves the field alone", env: "effects", moved: storedOtherMoved(),
 			rec: storedOtherBatch, step: "get_b", path: "product.qty_on_hand", kind: reasonUnclear, blamed: "stock_batch", check: orSteps("stock_batch", "confirm_fits")},
@@ -714,7 +714,7 @@ func TestAttributionNamesTheSuspectByKind(t *testing.T) {
 			return rec
 		}, step: "get_b", path: "product.qty_on_hand", kind: reasonUnclear, blamed: "add_stock_batch",
 			check: func(r reason) bool {
-				return strings.HasSuffix(r.String(), " or confirm_order (OrderService/ConfirmOrder) +1 more")
+				return strings.HasSuffix(r.String(), " or confirm_order (ConfirmOrder) +1 more")
 			}},
 		{name: "a read after a read of the record that still matched is filed under the write between them", env: "effects", moved: lostStamp(),
 			rec: func() *runner.Record { return stampRecord(true) }, step: "get", path: "product.qty_on_hand", kind: reasonWrite, blamed: "confirm_order"},
@@ -1095,7 +1095,7 @@ func TestAnUnclearWriteOrReadNamesAnotherReadOfTheField(t *testing.T) {
 	)
 	rec.Status = runner.StatusFailed
 	r := runAttribution(shop, rec).of("get", "product.qty_on_hand")
-	const hint = "tell them apart: read product.qty_on_hand through ProductService/ListProducts (products[].qty_on_hand)"
+	const hint = "tell them apart: read product.qty_on_hand through ListProducts (products[].qty_on_hand)"
 	if r.Kind != reasonUnclear || tellApart(shop, r, "product.qty_on_hand") != hint {
 		t.Fatalf("got %s, hint %q", r, tellApart(shop, r, "product.qty_on_hand"))
 	}
@@ -1103,7 +1103,7 @@ func TestAnUnclearWriteOrReadNamesAnotherReadOfTheField(t *testing.T) {
 		t.Errorf("run prints the hint once under the suspect, got %q", lines)
 	}
 	list := reason{Kind: reasonUnclear, Step: "add_stock", RPC: shopAdd, Read: "list", ReadRPC: shopList, Path: "qty_on_hand"}
-	if got := tellApart(shop, list, "products.1.qty_on_hand"); got != "tell them apart: read products[].qty_on_hand through ProductService/GetProduct (product.qty_on_hand)" {
+	if got := tellApart(shop, list, "products.1.qty_on_hand"); got != "tell them apart: read products[].qty_on_hand through GetProduct (product.qty_on_hand)" {
 		t.Errorf("a list read is told apart by the single read, got %q", got)
 	}
 	writes := reason{Kind: reasonUnclear, Step: "a", RPC: shopConfirm, Or: []reason{{Step: "a", RPC: shopConfirm}, {Step: "b", RPC: shopCancel}}}
@@ -1141,8 +1141,8 @@ func TestAlsoLinesFoldAStepsPathsWithOneSuspect(t *testing.T) {
 	report := &diff.Report{Changes: changes}
 	out := otherRoots(verifyItems(effectsEnv(t), cancelConfirmed(), report), &changes[0])
 	want := []string{
-		"  also: cancel_order (OrderService/CancelOrder) order.status want=ORDER_STATUS_CANCELLED got=ORDER_STATUS_CONFIRMED; suspect write cancel_order (OrderService/CancelOrder)",
-		"  also: cancel_order_again (OrderService/CancelOrder) status.code want=REJECTED got=SUCCESS; suspect write cancel_order (OrderService/CancelOrder)",
+		"  also: cancel_order (CancelOrder) order.status want=ORDER_STATUS_CANCELLED got=ORDER_STATUS_CONFIRMED; suspect write cancel_order (CancelOrder)",
+		"  also: cancel_order_again (CancelOrder) status.code want=REJECTED got=SUCCESS; suspect write cancel_order (CancelOrder)",
 	}
 	if got := strings.Split(strings.TrimRight(out, "\n"), "\n"); !slices.Equal(got, want) {
 		t.Errorf("got\n%s\nwant\n%s", out, strings.Join(want, "\n"))

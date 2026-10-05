@@ -16,9 +16,9 @@ func TestAReorderedListIsOneOrderChangeNotAValueChangePerField(t *testing.T) {
 	gateWorkspace(t, map[string][]gateOutcome{"verify cli-thing-flow": {{code: 1, side: gateSidecar{Items: items}}}})
 	out, _ := runGateOut(t, "-v")
 	for _, want := range []string{
-		"order changed: create (ThingService/Create) thing.parts same items in another order\n",
+		"order changed: create (Create) thing.parts same items in another order\n",
 		"    [create] thing.parts same items in another order\n",
-		"  ThingService/Create thing.parts: 1 step(s) in 1 chain(s); e.g. cli-thing-flow create thing.parts same items in another order\n",
+		"  Create thing.parts: 1 step in 1 chain, e.g. cli-thing-flow create thing.parts same items in another order\n",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("want %q in:\n%s", want, out)
@@ -48,8 +48,8 @@ func TestTheSuspectWriteCarriesItsProfile(t *testing.T) {
 	)
 	a := runAttribution(nil, rec)
 	for step, want := range map[string]string{
-		"get_product_after_confirm_order_short":    "suspect write confirm_order_short (OrderService/ConfirmOrder)",
-		"get_product_after_confirm_order_as_clerk": "suspect write confirm_order_as_clerk (OrderService/ConfirmOrder) as clerk",
+		"get_product_after_confirm_order_short":    "suspect write confirm_order_short (ConfirmOrder)",
+		"get_product_after_confirm_order_as_clerk": "suspect write confirm_order_as_clerk (ConfirmOrder) as clerk",
 	} {
 		if it := a.item(gateItem{Step: step, Call: shopGet, Path: "product.qty_on_hand"}); it.Reason.String() != want {
 			t.Errorf("%s: want %q, got %+v", step, want, it)
@@ -83,13 +83,13 @@ func TestAWriteThatFailedItsOwnExpectationsUnderTwoProfilesIsOneChange(t *testin
 	for _, want := range []string{
 		"    [move_zero] status.code want≠SUCCESS got=SUCCESS (and 1 more at move_as_other)\n",
 		"    [get_after_move_as_other] thing.level want=0 got=10\n",
-		"  ThingService/Move status.code, thing.level: 3 step(s) in 1 chain(s); e.g. cli-thing-flow get_after_move_as_other; write move_as_other as other\n",
+		"  Move status.code, thing.level: 3 steps in 1 chain, e.g. cli-thing-flow get_after_move_as_other; write move_as_other as other\n",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("want %q in:\n%s", want, out)
 		}
 	}
-	if strings.Count(out, "  ThingService/Move") != 1 {
+	if strings.Count(out, "  Move ") != 1 {
 		t.Errorf("one line for the rpc whatever the profile:\n%s", out)
 	}
 }

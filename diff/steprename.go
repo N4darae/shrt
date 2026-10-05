@@ -191,6 +191,5 @@ func RenamedLine(renames []StepRename, was, now string) string {
 	for _, rn := range renames {
 		list = append(list, fmt.Sprintf("step %d %s -> %s", rn.Index+1, rn.Was, rn.Now))
 	}
-	return fmt.Sprintf("renamed step(s): %s (named in %s -> in %s); the call is the same and the step keeps its place among the steps whose ids did not change, so each is compared "+
-		"as one step under its new name", strings.Join(list, ", "), was, now)
+	return fmt.Sprintf("renamed step(s): %s (named in %s -> in %s), compared under the new name", strings.Join(list, ", "), was, now)
 }

@@ -79,12 +79,3 @@ func normalizeNumber(v any) any {
 func (fr FieldRename) line() string {
 	return fmt.Sprintf("%s -> %s (both %s): likely a renamed field, still a change", fr.From, fr.To, show(fr.Value))
 }
-
-func renameText(renames []FieldRename) string {
-	if len(renames) == 0 {
-		return ""
-	}
-	return fmt.Sprintf("%d missing and unexpected field pair(s) under one parent hold the same value, so they look like a field "+
-		"renamed in the proto rather than lost data; each is still a change. If the rename is intended, move the chain's "+
-		"expectations to the new name, run it until it passes and propose it in place of the safe spot (-supersede)\n", len(renames))
-}

@@ -21,11 +21,11 @@ Report its rows, repros and gap probes: for what the chains cover, they are the 
 
 ### Chain lines
 
-- `PASS`: green, no drift.
+- `PASS a, b, c`: green chains with no drift, joined on one line.
 - `KEPT RED`: a known defect, failing exactly as pinned on the date shown. Nothing to do.
 - `FAIL pins held, new change:`: a new defect beside a kept-red chain's pins. A regression.
 - `FAIL not as pinned:`: a pin moved, or the chain passed. A regression.
-- `FAIL regression:` or `order changed:`: the first new change verify found. Fix the suspect.
+- `FAIL <chain>  <step> ... want=... got=...`: the first new change verify found. Fix the suspect. `order changed:` marks a list order change.
 - `FAIL different input:` or `chain change:`: the chain or its vars changed since approval (PITFALLS.md §34).
 - `FINDING intermittent:` or `repeated:`: an rpc that fails on some calls only. A real defect.
 - `NO VERDICT`: backend down, restarting or refusing auth. Re-run.
@@ -33,19 +33,19 @@ Report its rows, repros and gap probes: for what the chains cover, they are the 
 
 The end of a `FAIL` line:
 
-- `suspect ...` names who changed the field. Verdict words: PLAYBOOK.md §8.
-- `also ...` names a second suspect.
-- `same fault as <chain>`: that chain's line names this fault. Fix it once, there.
-- `(+N slice(s) fail the same ...)`: slices folded into their parent's line.
-- `(+N kept-red slice(s), every pin held ...)`: known defects. No need to run those slices.
+- `suspect ...` names who changed the field. Verdict words: PLAYBOOK.md §8. `, settled by -repro` means the row below settled it.
+- `<step> fails as in <chain>` or `same fault as <chain>`: that chain's line names this fault. Fix it once, there.
+- `+N slices fail the same: ...`: slices folded into their parent's line.
+- `+N kept red (<date>): ...` or `+N kept red fail too (<date>): ...`: known defects, every pin held. No need to run those slices.
 
 ### Summary parts
 
 - `failures by suspect rpc:`: one row per suspect rpc and field, with an example step. The answer.
-- `trigger:`: what the failing calls' requests have that the passing calls' lack. Take it as the pattern.
+Each row holds its own lines: the counter move, `settled ...`, `trigger:` and `repro:`.
+
+- `trigger:`: what the failing calls' requests have that the passing calls' lack. Take it as the pattern. Where it rested on few calls, `-repro` has already sent the contrasting calls and the line shows the result.
 - No `trigger:` line: nothing in the requests splits them. Probe from the example step.
-- A firmed `trigger` line above the row's `repro:`: trust it over the row's line.
-- `trigger above does not hold:`: a contrasting call contradicted it. Drop the row's trigger.
+- `trigger: none: sent again ...`: a contrasting call contradicted the split. There is no trigger.
 - A counter's move ending in a ratio such as `2x`: how far a suspect write moved it, against the approved run.
 - `settled on the write` or `settled on the read`: fix that side. `not settled:` keeps both.
 - `repro:`: a minimal slice in `.shrt/scratch/`, reproduced 3 of 3 times. `repro: none:` says why there is none.

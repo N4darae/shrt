@@ -129,7 +129,7 @@ func evaluateIncludes(path string, want, got any, found bool) ExpectResult {
 			return result(path, "includes", want, len(list), true, "")
 		}
 	}
-	return result(path, "includes", want, len(list), false, fmt.Sprintf("none of the %d item(s) matches", len(list)))
+	return result(path, "includes", want, len(list), false, "")
 }
 
 func itemMatches(item, want any) bool {
@@ -208,14 +208,7 @@ func (r ExpectResult) String() string {
 	if r.Passed {
 		status = "ok"
 	}
-	out := fmt.Sprintf("%s %s %s", status, r.Path, WantGot(r.Rule, fmt.Sprint(r.Want), fmt.Sprint(r.Got)))
-	if !ruleShown(r.Rule) {
-		out = fmt.Sprintf("%s %s %s want=%v", status, r.Path, r.Rule, r.Want)
-		if !unchecked(r) {
-			out += fmt.Sprintf(" got=%v", r.Got)
-		}
-	}
-	return withNote(out, r.Detail)
+	return status + " " + DescribeFailure(r)
 }
 
 func unchecked(r ExpectResult) bool {

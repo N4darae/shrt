@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/N4darae/shrt/chain"
 	"github.com/N4darae/shrt/diff"
@@ -186,20 +187,16 @@ func loadVerifySpot(e *env, name string) (*store.SafeSpot, string, error) {
 
 func (v *verification) loadRun() error {
 	e, name := v.e, v.name
-	v.useRun = store.RunID(v.useRun)
-	asked := v.useRun
-	rec, err := e.store.LoadRun(name, v.useRun)
+	rec, err := e.store.LoadRun(name, store.RunID(v.useRun))
 	if err != nil {
 		return err
 	}
-	if rec.RunID != asked {
-		v.useRun = rec.RunID
-		fmt.Fprintf(os.Stderr, "verify: -run %s is run %s, the newest run record of %s (a verify replay counts)\n",
-			asked, rec.RunID, name)
+	if rec.RunID != store.RunID(v.useRun) {
+		fmt.Fprintf(os.Stderr, "verify: -run %s is run %s\n", v.useRun, rec.RunID)
 	}
+	v.useRun = rec.RunID
 	if v.spot != nil && v.useRun == v.spot.RunID {
-		fmt.Fprintf(os.Stderr, "verify: run %s IS the safe spot's own run, so this is a control for the differ, NOT evidence about "+
-			"the backend; pass a later run id, or drop -run to replay live\n", v.useRun)
+		fmt.Fprintf(os.Stderr, "verify: run %s is the safe spot's own run, not evidence about the backend\n", v.useRun)
 	}
 	if resolved, resolveErr := v.chain(); resolveErr == nil {
 		v.c = resolved
@@ -214,12 +211,14 @@ func (v *verification) withoutSpot(none error) error {
 	}
 	side := runSidecar(v.e, v.c, v.rec, nil, nil, nil)
 	if v.rec.Passed() || len(side.Items) == 0 {
-		fmt.Printf("%s: run %s passed; no safe spot to diff it against\n", v.name, v.rec.RunID)
+		fmt.Printf("%s: run %s passed, no safe spot\n", v.name, v.rec.RunID)
 		return shownError{none}
 	}
 	it := side.Items[0]
-	fmt.Printf("%s: FAILED its own expectations in run %s, with no safe spot to diff it against; first: %s (%s) %s%s\n%s", v.name, v.rec.RunID, it.Step, shortRPC(it.Call), it.headline(),
-		suspectLines(v.e, v.rec, it.Reason, it.Step, it.Path, true), otherRoots(side.Items, &diff.Change{Step: it.Step, Path: it.Path}))
+	suspect, more := suspectLines(v.e, v.rec, it.Reason, it.Step, it.Path, true)
+	fmt.Print(joined(fmt.Sprintf("%s: FAILED in run %s, no safe spot", v.name, v.rec.RunID),
+		fmt.Sprintf("first: %s (%s) %s", it.Step, chain.RPCName(it.Call), it.headline()), suspect) + "\n" + more +
+		otherRoots(side.Items, &diff.Change{Step: it.Step, Path: it.Path}))
 	(&gateChain{items: side.Items}).printChanges(v.e)
 	return shownError{none}
 }
@@ -313,7 +312,7 @@ func (v *verification) gateItems() []gateItem {
 		v.items = verifyItems(v.e, v.rec, v.report)
 		a := runAttribution(v.e, v.rec)
 		for i, it := range v.items {
-			v.items[i].Effect, v.items[i].Times, v.items[i].Unmeasured = effectOf(a, v.spot.Steps, it)
+			v.items[i].Effect, v.items[i].Times = effectOf(a, v.spot.Steps, it)
 		}
 	}
 	return v.items
@@ -1233,23 +1232,20 @@ func verifyVerdict(e *env, name string, rec *runner.Record, report *diff.Report,
 		class := flaky.classOf(report, a)
 		why = class(*first) + alsoClasses(report, first, class)
 	}
-	line := fmt.Sprintf("%s: DRIFT (%s), %d step(s) changed vs safe spot %s; first: %s", name, why, steps, report.SafeSpotID, changeAt(rec, *first))
-	line += suspectLines(e, rec, a.of(first.Step, first.Path), first.Step, first.Path, strings.HasPrefix(why, "regression"))
-	return line + "\n" + otherRoots(items, first), body
+	head := fmt.Sprintf("%s: DRIFT (%s), %s changed vs safe spot %s", name, why, plural(steps, "step"), report.SafeSpotID)
+	suspect, more := suspectLines(e, rec, a.of(first.Step, first.Path), first.Step, first.Path, strings.HasPrefix(why, "regression"))
+	return joined(head, "first: "+changeAt(rec, *first), suspect) + "\n" + more + otherRoots(items, first), body
 }
 
-func suspectLines(e *env, rec *runner.Record, r reason, step, path string, sent bool) string {
-	line := ""
-	if s := r.String(); s != "" {
-		line += "; " + s
-	}
+func suspectLines(e *env, rec *runner.Record, r reason, step, path string, sent bool) (string, string) {
+	more := ""
 	if req := requestLine(r, step, recordSent(e, rec)); req != "" && sent {
-		line += "\n  " + req
+		more += "  " + req + "\n"
 	}
 	if hint := tellApart(e, r, path); hint != "" {
-		line += "\n  " + hint
+		more += "  " + hint + "\n"
 	}
-	return line
+	return r.in(said{head: &gateItem{Step: step}}), more
 }
 
 func otherRoots(items []gateItem, first *diff.Change) string {
@@ -1270,11 +1266,7 @@ func otherRoots(items []gateItem, first *diff.Change) string {
 			continue
 		}
 		seen[r], seen[same] = true, true
-		out += fmt.Sprintf("  also: %s (%s) %s", it.Step, shortRPC(it.Call), it.headline())
-		if s := it.Reason.String(); s != "" {
-			out += "; " + s
-		}
-		out += "\n"
+		out += joined(fmt.Sprintf("  also: %s (%s) %s", it.Step, chain.RPCName(it.Call), it.headline()), it.Reason.String()) + "\n"
 	}
 	return out
 }
@@ -1298,7 +1290,7 @@ func alsoClasses(report *diff.Report, first *diff.Change, classOf func(diff.Chan
 	}
 	out := ""
 	for _, cl := range sortedKeys(counts) {
-		out += fmt.Sprintf("; also %s at %d step(s)", cl, counts[cl])
+		out += fmt.Sprintf("; also %s at %s", cl, plural(counts[cl], "step"))
 	}
 	return out
 }
@@ -1374,7 +1366,7 @@ func rank(c diff.Change) int {
 func changeAt(rec *runner.Record, c diff.Change) string {
 	rpc := ""
 	if st, ok := rec.Step(c.Step); ok && st != nil {
-		rpc = " (" + shortRPC(st.Call) + ")"
+		rpc = " (" + chain.RPCName(st.Call) + ")"
 		for _, ex := range st.Expect {
 			if c.Kind == diff.KindStatus && !ex.Passed && ex.Rule != "unevaluated" {
 				want, got := gatePair(ex.Want, ex.Got)
@@ -1400,7 +1392,38 @@ func capText(s string, n int) string {
 	if len(s) <= n {
 		return s
 	}
-	return s[:n-3] + "..."
+	i := n - 3
+	for i > 0 && !utf8.RuneStart(s[i]) {
+		i--
+	}
+	return s[:i] + "..."
+}
+
+const lineMax = 160
+
+func joined(parts ...string) string {
+	return strings.Join(slices.DeleteFunc(parts, func(s string) bool { return s == "" }), "; ")
+}
+
+func fill(indent, head string, parts ...string) string {
+	var b strings.Builder
+	cur := head
+	for _, p := range parts {
+		if p == "" {
+			continue
+		}
+		sep := "; "
+		if p[0] == ' ' {
+			sep, p = " ", p[1:]
+		}
+		if len(cur)+len(sep)+len(p) > lineMax && strings.TrimSpace(cur) != "" {
+			b.WriteString(capText(cur, lineMax) + "\n")
+			cur = indent + strings.TrimLeft(p, " ")
+			continue
+		}
+		cur += sep + p
+	}
+	return b.String() + capText(cur, lineMax)
 }
 
 func describeChanges(changes []diff.Change) string {

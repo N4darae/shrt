@@ -30,14 +30,14 @@ func TestAGateRowNamesItsReadOnce(t *testing.T) {
 	chains := rowChains()
 	rows := map[string]string{}
 	for _, g := range chains {
-		rows[g.name] = g.line(0)
+		rows[g.name] = strings.ReplaceAll(g.line(nil), "\n  ", "; ")
 	}
 	for name, want := range map[string]string{
-		"customers": "customer.name want=Customer t1 got=cust-t1@example.test; unclear: write create_customer (CustomerService/CreateCustomer) or the read",
-		"orders":    "fetch_order (OrderService/FetchOrder) order.lines want=2 got=1; suspect the read: answers another set of order.lines",
-		"stock":     "get_product (ProductService/GetProduct) product.qty_on_hand want=4 got=8; suspect write confirm_order (OrderService/ConfirmOrder)",
-		"stored":    "get_thing (S/Get) thing.state want=DONE got=OPEN; suspect write w (S/Confirm): stores other than it answered",
-		"confirms":  "confirm_order (OrderService/ConfirmOrder) order.status want=CONFIRMED got=PENDING; suspect the write as clerk",
+		"customers": "customer.name want=Customer t1 got=cust-t1@example.test; unclear: write create_customer (CreateCustomer) or the read",
+		"orders":    "fetch_order (FetchOrder) order.lines want=2 got=1; suspect the read",
+		"stock":     "get_product (GetProduct) product.qty_on_hand want=4 got=8; suspect write confirm_order (ConfirmOrder)",
+		"stored":    "get_thing (Get) thing.state want=DONE got=OPEN; suspect write w (Confirm)",
+		"confirms":  "confirm_order (ConfirmOrder) order.status want=CONFIRMED got=PENDING; suspect the write as clerk",
 	} {
 		if !strings.HasSuffix(rows[name], want) {
 			t.Errorf("%s: want the row to end %q, got %q", name, want, rows[name])
@@ -51,11 +51,11 @@ func TestAGateRowNamesItsReadOnce(t *testing.T) {
 func TestASummaryLineSaysOnlyWhatItsRpcDoesNot(t *testing.T) {
 	summary := captureStdout(t, func() { printGateGroups(nil, rowChains(), false) })
 	for _, want := range []string{
-		"  OrderService/FetchOrder order.lines: 1 step(s) in 1 chain(s); e.g. orders fetch_order; answers another set of order.lines\n",
-		"  CustomerService/CreateCustomer or the read CustomerService/GetCustomer customer.name: 1 step(s) in 1 chain(s); e.g. customers get_customer\n",
-		"  OrderService/ConfirmOrder product.qty_on_hand, status.code: 2 step(s) in 1 chain(s); e.g. stock get_product; write confirm_order\n",
-		"  OrderService/ConfirmOrder order.status: 1 step(s) in 1 chain(s); e.g. confirms confirm_order; as clerk\n",
-		"  S/Confirm thing.state: 1 step(s) in 1 chain(s); e.g. stored get_thing; write w: answered thing.state=DONE, but Get read OPEN\n",
+		"  FetchOrder order.lines: 1 step in 1 chain, e.g. orders fetch_order; answers another set of order.lines\n",
+		"  CreateCustomer or the read GetCustomer customer.name: 1 step in 1 chain, e.g. customers get_customer\n",
+		"  ConfirmOrder product.qty_on_hand, status.code: 2 steps in 1 chain, e.g. stock get_product; write confirm_order\n",
+		"  ConfirmOrder order.status: 1 step in 1 chain, e.g. confirms confirm_order; as clerk\n",
+		"  Confirm thing.state: 1 step in 1 chain, e.g. stored get_thing; write w: answered thing.state=DONE, but Get read OPEN\n",
 	} {
 		if !strings.Contains(summary, want) {
 			t.Errorf("want %q in the summary:\n%s", want, summary)
@@ -76,10 +76,10 @@ func TestATransportCodeIsNamedSoInTheGate(t *testing.T) {
 	}
 	chains := []*gateChain{{name: "customers", failed: true, items: []gateItem{own("create_long", "customer.name", "Customer t1-abc", "Customer t1-a"), own("create_unicode", "code", "<none>", "internal")}}}
 	settleGate(chains)
-	if want := "; also suspect write create_unicode (CustomerService/CreateCustomer) at transport code internal"; !strings.HasSuffix(chains[0].first, want) {
-		t.Errorf("want the line to end %q, got %q", want, chains[0].first)
+	if want := "create_long (CreateCustomer) customer.name want=Customer t1-abc got=Customer t1-a; suspect the write"; !strings.HasSuffix(chains[0].line(nil), want) {
+		t.Errorf("want the line to end %q, got %q", want, chains[0].line(nil))
 	}
-	if summary := captureStdout(t, func() { printGateGroups(nil, chains, false) }); !strings.Contains(summary, "  CustomerService/CreateCustomer customer.name, transport code: 2 step(s)") {
+	if summary := captureStdout(t, func() { printGateGroups(nil, chains, false) }); !strings.Contains(summary, "  CreateCustomer customer.name, transport code: 2 steps") {
 		t.Errorf("the row head names the transport code so:\n%s", summary)
 	}
 	for path, want := range map[string]string{"transport.code": transportCode, "code": transportCode, "status.code": "status.code"} {
@@ -92,4 +92,10 @@ func TestATransportCodeIsNamedSoInTheGate(t *testing.T) {
 	if got, _ := (gateItem{Path: "code"}).shown(); got != "code" {
 		t.Errorf("an envelope at code is the envelope, not the transport code: %q", got)
 	}
+}
+
+func printGateGroups(e *env, chains []*gateChain, verbose bool) []*gateGroup {
+	groups := gateGroups(e, chains)
+	printGroups(groups, verbose, nil)
+	return groups
 }

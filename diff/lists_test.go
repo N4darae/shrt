@@ -243,7 +243,7 @@ func TestAStatusChangeIsNotListedBesideTheChangesAtItsStep(t *testing.T) {
 	spot := spotOf(nil, &runner.StepRecord{ID: "get", Call: "ThingService/Fetch", Status: runner.StatusPassed, Response: json.RawMessage(`{"n":"3"}`)})
 	rec := recOf(&runner.StepRecord{ID: "get", Call: "ThingService/Fetch", Status: runner.StatusFailed, Response: json.RawMessage(`{"n":"2"}`)})
 	text := diff.Compare(spot, rec).Text()
-	if strings.Contains(text, "want=passed got=failed") || !strings.Contains(text, "[get] changed    n want=3 got=2") {
+	if strings.Contains(text, "want=passed got=failed") || !strings.Contains(text, "[get] changed n want=3 got=2") {
 		t.Fatalf("the changed field says why the step failed; its status line only repeats it:\n%s", text)
 	}
 }
@@ -307,7 +307,7 @@ func TestAListWhoseMembershipChangedIsOneLineNotOnePerItemId(t *testing.T) {
 	if strings.Contains(text, "not renamed consistently") {
 		t.Fatalf("per-index id lines of a list whose length changed must fold into its length line:\n%s", text)
 	}
-	want := "items want=2 item(s) got=4 item(s) (2 added, 0 dropped, by id_item; added itm-999999999991, itm-999999999992; 2 added have id_owner other than the request's own-bbbbbbbbbbbb)"
+	want := "items want=2 got=4 (2 added, 0 dropped, by id_item; added itm-999999999991, itm-999999999992; 2 added have id_owner other than the request's own-bbbbbbbbbbbb)"
 	if !strings.Contains(text, want) {
 		t.Fatalf("want the membership line %q in:\n%s", want, text)
 	}
@@ -325,7 +325,7 @@ func TestAListOfTheSameLengthWithOtherItemsSaysSoOnce(t *testing.T) {
 		step("list_items", `{"items":[`+item("333333333333")+`,`+item("888888888888")+`]}`))
 	rep := diff.Compare(spot, rec)
 	text := rep.Text()
-	if rep.Clean() || strings.Contains(text, "not renamed consistently") || !strings.Contains(text, "membership items want=2 item(s) got=2 item(s) (1 added, 1 dropped, by id_item") {
+	if rep.Clean() || strings.Contains(text, "not renamed consistently") || !strings.Contains(text, "membership items want=2 got=2 (1 added, 1 dropped, by id_item") {
 		t.Fatalf("a replaced item must be one membership line:\n%s", text)
 	}
 }

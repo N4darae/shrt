@@ -36,7 +36,7 @@ func TestTheGateChecksSessionLifetimeOnceForTwoProfiles(t *testing.T) {
 	cacheASessionToken(t)
 	time.Sleep(400 * time.Millisecond)
 	out, code := runGateOut(t)
-	if code != 1 || strings.Count(out, "checking session lifetime") != 1 || strings.Count(out, "end early: fresh token") != 1 {
+	if code != 1 || strings.Count(out, "to check session lifetime") != 1 || strings.Count(out, "end early: fresh token") != 1 {
 		t.Fatalf("one held token settles sessions that end early for every profile: one check, one FINDING, got %d:\n%s", code, out)
 	}
 	if strings.Contains(out, "refused early once") {
@@ -57,10 +57,9 @@ func TestTheGateLabelsWhatItsOwnOutputExplains(t *testing.T) {
 	})
 	out, code := runGateOut(t)
 	for _, want := range []string{
-		"FINDING    cli-thing-flow  intermittent: ThingService/Fetch failed 3 of 12 calls, every 4th\n",
-		"FINDING    cli-unique      intermittent: ThingService/Fetch failed 4 of 16 calls, every 4th\n",
-		"FINDING: intermittent failure at ThingService/Fetch (failed 7 of 28 calls, every 4th) in 2 chain(s): a backend defect (flaky under load, " +
-			"an exhausted pool, a race), not a deterministic regression at those steps; a re-run may pass and does not clear it\n",
+		"FINDING cli-thing-flow  intermittent: Fetch failed 3 of 12 calls, every 4th\n",
+		"FINDING cli-unique  intermittent: Fetch failed 4 of 16 calls, every 4th\n",
+		"FINDING: intermittent failure at Fetch (failed 7 of 28 calls, every 4th) in 2 chains: a backend defect, a re-run may pass but does not clear it\n",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("want %q in:\n%s", want, out)
@@ -82,16 +81,16 @@ func TestTheGateLabelsAChainFailingOnlyByAnIntermittentFindingAndStatesItOnce(t 
 	})
 	out, code := runGateOut(t)
 	for _, want := range []string{
-		"FINDING    cli-thing-flow  intermittent: ThingService/Fetch failed 2 of 8 calls, every 4th\n",
-		"FINDING    cli-unique      intermittent: ThingService/Fetch failed 2 of 8 calls, every 4th\n",
-		"FINDING: intermittent failure at ThingService/Fetch (failed 4 of 16 calls, every 4th) in 2 chain(s): a backend defect",
-		"FAIL: 2 of 2 chain(s) failed, 1 finding(s)",
+		"FINDING cli-thing-flow  intermittent: Fetch failed 2 of 8 calls, every 4th\n",
+		"FINDING cli-unique  intermittent: Fetch failed 2 of 8 calls, every 4th\n",
+		"FINDING: intermittent failure at Fetch (failed 4 of 16 calls, every 4th) in 2 chains: a backend defect",
+		"FAIL: 2 of 2 chains failed, 1 finding above",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("want %q in:\n%s", want, out)
 		}
 	}
-	if code != 1 || strings.Contains(out, "repeated") || strings.Count(out, "failure at ThingService/Fetch") != 1 {
+	if code != 1 || strings.Contains(out, "repeated") || strings.Count(out, "failure at Fetch") != 1 {
 		t.Errorf("one wording for the one defect, stated once, and the gate fails:\n%s", out)
 	}
 }
@@ -112,17 +111,17 @@ func TestTheGateLabelsEveryChainAGateFindingExplains(t *testing.T) {
 	writeFile(t, ".shrt/safespots/cli-other.json", "{}\n")
 	out, code := runGateOut(t)
 	for _, want := range []string{
-		"FINDING    cli-thing-flow  intermittent: ThingService/Create failed 1 of 5 calls\n",
-		"FINDING    cli-unique      intermittent: ThingService/Create failed 1 of 5 calls\n",
-		"FAIL       cli-other       regression: list (ThingService/Fetch) items want=3 got=2; suspect the read: answers another set of items\n",
-		"  FINDING: intermittent failure at ThingService/Create, below\n",
-		"FINDING: intermittent failure at ThingService/Create (failed 3 of 15 calls) in 3 chain(s): a backend defect",
+		"FINDING cli-thing-flow  intermittent: Create failed 1 of 5 calls\n",
+		"FINDING cli-unique  intermittent: Create failed 1 of 5 calls\n",
+		"FAIL cli-other  list (Fetch) items want=3 got=2; suspect the read\n",
+		"  FINDING: intermittent failure at Create, below\n",
+		"FINDING: intermittent failure at Create (failed 3 of 15 calls) in 3 chains: a backend defect",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("want %q in:\n%s", want, out)
 		}
 	}
-	if code != 1 || strings.Contains(out, "  ThingService/Create") || strings.Contains(out, "from Create") {
+	if code != 1 || strings.Contains(out, "  Create ") || strings.Contains(out, "from Create") {
 		t.Errorf("no chain counts the finding's changes as a regression, and no group repeats them:\n%s", out)
 	}
 }
@@ -138,7 +137,7 @@ func TestTheGateKeepsAListChangeAnotherChainShowsWithoutTheFinding(t *testing.T)
 		"run cli-unique":        {{code: 1, side: gateSidecar{Items: []gateItem{alone}}}},
 	})
 	out, _ := runGateOut(t)
-	if !strings.Contains(out, "FAIL       cli-thing-flow  regression: list (ThingService/List) items want=3 got=2") {
+	if !strings.Contains(out, "FAIL cli-thing-flow  list (List) items want=3 got=2; knock-on of write create (Create)\n") {
 		t.Errorf("a list another chain shows changed without the failing call stays a regression here:\n%s", out)
 	}
 }
@@ -155,7 +154,7 @@ func TestTheGateExplainsAChangeOnlyByAFailureInTheSameRecord(t *testing.T) {
 	})
 	writeFile(t, ".shrt/safespots/cli-unique.json", "{}\n")
 	out, _ := runGateOut(t)
-	if !strings.Contains(out, "FAIL       cli-unique      regression: read (ThingService/Fetch) qty want=5 got=4") {
+	if !strings.Contains(out, "FAIL cli-unique  read (Fetch) qty want=5 got=4; suspect read confirm (Fetch)\n") {
 		t.Errorf("a failure in the run does not explain the verify's change:\n%s", out)
 	}
 }
@@ -169,8 +168,8 @@ func TestTheGateFindsAServerErrorAtAFixedCadenceIntermittent(t *testing.T) {
 	})
 	out, _ := runGateOut(t)
 	for _, want := range []string{
-		"FINDING    cli-unique      intermittent: ThingService/Create failed 3 of 15 calls, every 5th\n",
-		"FINDING: intermittent failure at ThingService/Create (failed 3 of 15 calls, every 5th) in 1 chain(s): a backend defect",
+		"FINDING cli-unique  intermittent: Create failed 3 of 15 calls, every 5th\n",
+		"FINDING: intermittent failure at Create (failed 3 of 15 calls, every 5th) in 1 chain: a backend defect",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("want %q in:\n%s", want, out)
@@ -185,7 +184,7 @@ func TestTheGateKeepsAServerErrorARegressionWithoutAFinding(t *testing.T) {
 		"run cli-unique": {{code: 1, side: gateSidecar{Items: []gateItem{create}, Errors: []gateFlaky{{Call: call, Failed: 1, Calls: 5, Steps: []string{"create"}}}}}},
 	})
 	out, _ := runGateOut(t)
-	if !strings.Contains(out, "FAIL       cli-unique      create (ThingService/Create) (failed) unavailable: busy\n") || strings.Contains(out, "FINDING") {
+	if !strings.Contains(out, "FAIL cli-unique  create (Create) (failed) unavailable: busy\n") || strings.Contains(out, "FINDING") {
 		t.Errorf("one chain's server error with nothing showing it intermittent stays a failure:\n%s", out)
 	}
 }
@@ -196,7 +195,7 @@ func TestTheGateSaysNotAsPinnedForAKeptRedChainThatFailedOtherwise(t *testing.T)
 			Error: "chain cli-unique: kept red, but it did not fail as pinned: NEW FAILURE outside the pinned defect: fetch refused at transport: internal"}}},
 	})
 	out, _ := runGateOut(t)
-	if !strings.Contains(out, "FAIL       cli-unique      not as pinned: run: NEW FAILURE outside the pinned defect: fetch refused at transport: internal\n") {
+	if !strings.Contains(out, "FAIL cli-unique  not as pinned: run: NEW FAILURE outside the pinned defect: fetch refused at transport: internal\n") {
 		t.Errorf("the FAIL line says the chain did not fail as pinned:\n%s", out)
 	}
 }
@@ -207,7 +206,7 @@ func TestTheGateHeadlinesTheLengthOfAListThatShrank(t *testing.T) {
 			Path: "results.11.status.code", Want: "SUCCESS", Got: "<none>", Length: "results length want=12 got=5"}}}}},
 	})
 	out, _ := runGateOut(t)
-	if !strings.Contains(out, "FAIL       cli-unique      batch (ThingService/Create) results length want=12 got=5\n") {
+	if !strings.Contains(out, "FAIL cli-unique  batch (Create) results length want=12 got=5\n") {
 		t.Errorf("the headline is the length, not the first missing index:\n%s", out)
 	}
 }
@@ -236,8 +235,8 @@ func TestTheGateHeadlinesADeterministicChangeOverTheIntermittentOne(t *testing.T
 	})
 	out, _ := runGateOut(t)
 	for _, want := range []string{
-		"FAIL       cli-thing-flow  latency: fetch2 (ThingService/Fetch) latency safe spot 0ms, now 701ms (+701ms)\n",
-		"  FINDING: intermittent failure at ThingService/Fetch, below\n",
+		"FAIL cli-thing-flow  latency: fetch2 (Fetch) latency safe spot 0ms, now 701ms (+701ms)\n",
+		"  FINDING: intermittent failure at Fetch, below\n",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("want %q in:\n%s", want, out)

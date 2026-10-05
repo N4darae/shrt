@@ -31,7 +31,65 @@ type gateRef struct {
 	it    gateItem
 }
 
-func gateRepro(ctx context.Context, e *env, chains []*gateChain, groups []*gateGroup, wait time.Duration) {
+type settles map[string]string
+
+func settleKey(name string, it gateItem) string {
+	switch r := it.Reason; {
+	case r.Kind != reasonUnclear:
+		return ""
+	case len(r.Or) == 2:
+		return name + " " + r.Or[0].Step + " " + r.Or[1].Step
+	case len(r.Or) == 0:
+		return r.RPC + " " + r.ReadRPC + " " + leafOf(it.Path)
+	}
+	return ""
+}
+
+func (s settles) of(name string, it gateItem) (reason, bool) {
+	side, ok := s[settleKey(name, it)]
+	r := it.Reason
+	switch read, via, _ := strings.Cut(side, " "); {
+	case !ok:
+	case side == "write":
+		return reason{Kind: reasonWrite, Step: r.Step, RPC: r.RPC, Profile: r.Profile}, true
+	case read == "read":
+		return reason{Kind: reasonDiffers, Step: r.Read, RPC: r.ReadRPC, Profile: r.Profile, Path: it.Path, Other: via}, true
+	default:
+		for _, o := range r.Or {
+			if o.Step == side {
+				return reason{Kind: reasonWrite, Step: o.Step, RPC: o.RPC, Profile: o.Profile}, true
+			}
+		}
+	}
+	return reason{}, false
+}
+
+type rowRepro struct {
+	trigger, repro string
+	settles        []string
+}
+
+type reproOut struct {
+	rows    map[*gateGroup]*rowRepro
+	settles settles
+	masks   string
+}
+
+func (r *reproOut) settled() settles {
+	if r == nil {
+		return nil
+	}
+	return r.settles
+}
+
+func (r *reproOut) row(gr *gateGroup) *rowRepro {
+	if r == nil {
+		return nil
+	}
+	return r.rows[gr]
+}
+
+func gateRepro(ctx context.Context, e *env, chains []*gateChain, groups []*gateGroup, wait time.Duration) *reproOut {
 	spot, byName := map[string]bool{}, map[string]*gateChain{}
 	for _, g := range chains {
 		spot[g.name], byName[g.name] = g.spot, g
@@ -40,15 +98,16 @@ func gateRepro(ctx context.Context, e *env, chains []*gateChain, groups []*gateG
 	if lib, err := e.library(); err == nil {
 		fresh = freshVarsOf(e, lib)
 	}
-	if len(groups) > 0 {
-		fmt.Fprintf(os.Stderr, "gate: -repro: writing and verifying a repro for each of %d suspect rpc(s), each slice sent %d times\n", len(groups), sliceRepeat)
-		fmt.Println("repro, for each row of failures by suspect rpc:")
-	}
+	out := &reproOut{rows: map[*gateGroup]*rowRepro{}, settles: settles{}}
 	done, files := map[string]string{}, map[string]string{}
 	for _, gr := range groups {
-		fmt.Println("  " + gr.head)
-		for _, line := range settleRow(ctx, e, gr, spot, wait) {
-			fmt.Println("    " + line)
+		rr := &rowRepro{}
+		out.rows[gr] = rr
+		for _, st := range settleRow(ctx, e, gr, spot, wait) {
+			rr.settles = append(rr.settles, st.line)
+			if st.side != "" {
+				out.settles[st.key] = st.side
+			}
 		}
 		at := gateRef{chain: gr.in, it: gr.example}
 		key := at.chain + " " + at.it.Step
@@ -56,77 +115,76 @@ func gateRepro(ctx context.Context, e *env, chains []*gateChain, groups []*gateG
 			done[key], files[key] = reproRow(ctx, e, at, fresh)
 		}
 		fails, passes := gr.rowCalls(byName)
-		switch line, against := firmTrigger(ctx, e, files[key], at, fails, passes); {
-		case against != "":
-			fmt.Println("    trigger above does not hold: " + against)
-		case line != gr.trigger && gr.trigger != "":
-			fmt.Println("    trigger, firmed by -repro in place of the row's line above: " + strings.TrimPrefix(line, "trigger: "))
-		case line != gr.trigger:
-			fmt.Println("    " + line)
+		line, against := firmTrigger(ctx, e, files[key], at, fails, passes)
+		if rr.trigger, rr.repro = line, done[key]; against != "" {
+			rr.trigger = "trigger: none: " + against
 		}
-		fmt.Println("    " + done[key])
 	}
-	fmt.Println(gateMasks(ctx, chains))
+	out.masks = gateMasks(ctx, chains)
+	return out
 }
 
 func scratchDir(e *env) string {
 	return e.cfg.Abs(filepath.Join(config.DirName, "scratch"))
 }
 
-func settleRow(ctx context.Context, e *env, gr *gateGroup, spot map[string]bool, wait time.Duration) []string {
-	var out []string
+type settleLine struct{ key, side, line string }
+
+func settleRow(ctx context.Context, e *env, gr *gateGroup, spot map[string]bool, wait time.Duration) []settleLine {
+	var out []settleLine
 	asked := map[string]bool{}
 	refs := append([]gateRef{{chain: gr.in, it: gr.example}}, gr.refs...)
 	for _, onSpot := range []bool{true, false} {
 		for _, ref := range refs {
-			r, key := ref.it.Reason, ""
+			r, key := ref.it.Reason, settleKey(ref.chain, ref.it)
 			_, via, _ := tellApartReads(e, r, ref.it.Path)
 			switch {
 			case spot[ref.chain] != onSpot:
+				continue
 			case r.Kind == reasonUnclear && len(r.Or) == 2:
-				key = ref.chain + " " + r.Or[0].Step + " " + r.Or[1].Step
 			case r.Read == ref.it.Step && len(via) > 0:
-				key = r.RPC + " " + r.ReadRPC + " " + leafOf(ref.it.Path)
+			default:
+				continue
 			}
 			if key == "" || asked[key] {
 				continue
 			}
 			asked[key] = true
-			line := ""
+			st := settleLine{key: key}
 			if len(via) > 0 {
-				line = settle(ctx, e, ref, via[0], wait)
+				st.line, st.side = settle(ctx, e, ref, via[0], wait)
 			} else {
-				line = settleWrites(ctx, e, ref, wait)
+				st.line, st.side = settleWrites(ctx, e, ref, wait)
 			}
-			if line != "" {
-				out = append(out, line)
+			if st.line != "" {
+				out = append(out, st)
 			}
 		}
 	}
 	return out
 }
 
-func tellApartRun(ctx context.Context, e *env, c *chain.Chain, read, about string, steps []*chain.Step, wait time.Duration) (gateOutcome, string, error) {
+func tellApartRun(ctx context.Context, e *env, c *chain.Chain, read, about string, steps []*chain.Step, wait time.Duration) (gateOutcome, error) {
 	tc := &chain.Chain{APIVersion: c.APIVersion, Name: c.Name + "-tell-apart-" + read, Vars: c.Vars, Volatile: c.Volatile, Unordered: c.Unordered, Redact: c.Redact,
 		Description: "Written by shrt gate -repro: " + c.Name + " up to " + read + about, Steps: steps}
 	file := filepath.Join(scratchDir(e), tc.Name+".yaml")
 	if err := writeSliceFile(file, tc); err != nil {
-		return gateOutcome{}, "", err
+		return gateOutcome{}, err
 	}
-	return gateAttempt(ctx, "run", file, len(tc.UnusedVarNames(map[string]any{chain.RunTagVar: ""})) == 0, wait), "shrt run " + shownPath(file), nil
+	return gateAttempt(ctx, "run", file, len(tc.UnusedVarNames(map[string]any{chain.RunTagVar: ""})) == 0, wait), nil
 }
 
-func settle(ctx context.Context, e *env, ref gateRef, via tellRead, wait time.Duration) string {
+func settle(ctx context.Context, e *env, ref gateRef, via tellRead, wait time.Duration) (string, string) {
 	r, path := ref.it.Reason, ref.it.Path
 	c, err := e.resolveChain(ref.chain)
 	if err != nil {
-		return "not settled: " + err.Error()
+		return "not settled: " + err.Error(), ""
 	}
 	at := slices.IndexFunc(c.Steps, func(s *chain.Step) bool { return s.ID == r.Read })
 	w := slices.IndexFunc(c.Steps, func(s *chain.Step) bool { return s.ID == r.Step })
 	rm, err := e.cat.Lookup(r.ReadRPC)
 	if at < 0 || w < 0 || w > at || err != nil {
-		return ""
+		return "", ""
 	}
 	steps := slices.Clone(c.Steps[:at+1])
 	expect := func(i int, p string, want any, replace bool) {
@@ -141,11 +199,11 @@ func settle(ctx context.Context, e *env, ref gateRef, via tellRead, wait time.Du
 	expect(w, r.Path, r.Want, false)
 	expect(at, path, "${"+r.Step+"."+r.Path+"}", true)
 	read := steps[at]
-	field, viaName := gateIndex.ReplaceAllString(path, "[]$1"), shortRPC(via.method.FullName)
-	out, shown, err := tellApartRun(ctx, e, c, r.Read, fmt.Sprintf(", then %s reads %s of the same item, to tell the write %s from the read %s.", viaName, field, r.Step, r.Read),
+	field, viaName := gateIndex.ReplaceAllString(path, "[]$1"), chain.RPCName(via.method.FullName)
+	out, err := tellApartRun(ctx, e, c, r.Read, fmt.Sprintf(", then %s reads %s of the same item, to tell the write %s from the read %s.", viaName, field, r.Step, r.Read),
 		append(steps, &chain.Step{ID: r.Read + "_tell_apart", Call: via.method.FullName, Auth: read.Auth, SkipAuth: read.SkipAuth, Body: tellApartBody(via.method, rm, read, path)}), wait)
 	if err != nil {
-		return "not settled: " + err.Error()
+		return "not settled: " + err.Error(), ""
 	}
 	for _, x := range out.side.Items {
 		if x.Step != r.Read || x.Path != path {
@@ -153,35 +211,35 @@ func settle(ctx context.Context, e *env, ref gateRef, via tellRead, wait time.Du
 		}
 		switch x.Reason.Kind {
 		case reasonStored:
-			return fmt.Sprintf("settled on the write %s (%s): %s read %s=%s, as %s did, where the write answered %s  (%s)",
-				x.Reason.Step, shortRPC(x.Reason.RPC), viaName, field, valueText(x.Got), chain.RPCName(r.ReadRPC), valueText(x.Want), shown)
+			return fmt.Sprintf("settled on the write %s: %s read %s=%s, as %s did, where it answered %s",
+				x.Reason.Step, viaName, field, valueText(x.Got), chain.RPCName(r.ReadRPC), valueText(x.Want)), "write"
 		case reasonDiffers:
-			return fmt.Sprintf("settled on the read %s (%s): %s read %s=%s, as the write %s answered, where %s read %s  (%s)",
-				r.Read, shortRPC(r.ReadRPC), viaName, field, valueText(x.Want), r.Step, chain.RPCName(r.ReadRPC), valueText(x.Got), shown)
+			return fmt.Sprintf("settled on the read %s: %s read %s=%s, as the write %s answered, where %s read %s",
+				r.Read, viaName, field, valueText(x.Want), r.Step, chain.RPCName(r.ReadRPC), valueText(x.Got)), "read " + viaName
 		}
-		return fmt.Sprintf("not settled: %s did not read %s of the same item  (%s)", viaName, field, shown)
+		return fmt.Sprintf("not settled: %s did not read %s of the same item", viaName, field), ""
 	}
 	if out.code != 0 && out.code != 1 {
-		return fmt.Sprintf("not settled: %s  (%s)", lastLine(out), shown)
+		return "not settled: " + lastLine(out), ""
 	}
-	return fmt.Sprintf("not settled: %s read %s as %s answered it in the tell-apart run  (%s)", r.Read, field, r.Step, shown)
+	return fmt.Sprintf("not settled: %s read %s as %s answered it", r.Read, field, r.Step), ""
 }
 
-func settleWrites(ctx context.Context, e *env, ref gateRef, wait time.Duration) string {
+func settleWrites(ctx context.Context, e *env, ref gateRef, wait time.Duration) (string, string) {
 	path, early, late, step := ref.it.Path, ref.it.Reason.Or[0], ref.it.Reason.Or[1], ref.it.Step
-	leaf, field := leafOf(path), gateIndex.ReplaceAllString(path, "[]$1")
+	leaf := leafOf(path)
 	rec, err := e.store.LatestRun(ref.chain)
 	if eff := e.effectsOf(late.RPC)[leaf]; eff == nil || cmp.Or(eff.Increase, eff.Decrease) == "" || err != nil {
-		return ""
+		return "", ""
 	}
 	at := func(id string) *runner.StepRecord {
 		st, _ := rec.Step(id)
 		return st
 	}
-	_, ids, why := valueAt(at(step), path)
-	pos, read, shown := positions(rec), "", ""
+	_, ids, ok := valueAt(at(step), path)
+	pos, read, tell := positions(rec), "", false
 	from, found := pos[early.Step]
-	for i := from + 1; found && why == "" && i < pos[late.Step] && read == ""; i++ {
+	for i := from + 1; found && ok && i < pos[late.Step] && read == ""; i++ {
 		if _, found, _ := entityValue(rec.Steps[i], leaf, ids); found && !isWrite(rec.Steps[i]) {
 			read = rec.Steps[i].ID
 		}
@@ -189,7 +247,7 @@ func settleWrites(ctx context.Context, e *env, ref gateRef, wait time.Duration) 
 	if read == "" {
 		c, err := e.resolveChain(ref.chain)
 		if err != nil {
-			return ""
+			return "", ""
 		}
 		w := slices.IndexFunc(c.Steps, func(s *chain.Step) bool { return s.ID == early.Step })
 		r := slices.IndexFunc(c.Steps, func(s *chain.Step) bool { return s.ID == step })
@@ -197,59 +255,63 @@ func settleWrites(ctx context.Context, e *env, ref gateRef, wait time.Duration) 
 			id, ok := chain.ParseRef(x).StepID()
 			return ok && slices.ContainsFunc(c.Steps[w+1:r+1], func(s *chain.Step) bool { return s.ID == id })
 		}) {
-			return ""
+			return "", ""
 		}
 		again := *c.Steps[r]
 		again.ID, again.Expect, again.Export = step+"_after_"+early.Step, nil, nil
-		out, file, err := tellApartRun(ctx, e, c, step, fmt.Sprintf(", with %s sent again right after %s, to tell the write %s from the write %s.", step, early.Step, early.Step, late.Step),
+		out, err := tellApartRun(ctx, e, c, step, fmt.Sprintf(", with %s sent again right after %s, to tell the write %s from the write %s.", step, early.Step, early.Step, late.Step),
 			slices.Concat(c.Steps[:w+1], []*chain.Step{&again}, c.Steps[w+1:r+1]), wait)
 		if err != nil {
-			return "not settled: " + err.Error()
+			return "not settled: " + err.Error(), ""
 		}
-		if shown, read = "  ("+file+")", again.ID; out.code != 0 && out.code != 1 {
-			return "not settled: " + lastLine(out) + shown
+		if tell, read = true, again.ID; out.code != 0 && out.code != 1 {
+			return "not settled: " + lastLine(out), ""
 		}
 		if rec, err = e.store.LatestRun(c.Name + "-tell-apart-" + step); err != nil {
-			return "not settled: " + err.Error() + shown
+			return "not settled: " + err.Error(), ""
 		}
 	}
-	now, ids, why := valueAt(at(step), path)
+	now, ids, ok := valueAt(at(step), path)
 	w, okW, _ := entityValue(at(early.Step), leaf, ids)
 	v, okV, _ := entityValue(at(read), leaf, ids)
 	want, okWant := number(ref.it.Want)
-	sw, against := w, "the chain's expected values"
+	sw, against := w, "expected"
 	if spot, err := e.store.LoadSafeSpot(ref.chain); err == nil {
 		approved := &runner.Record{Steps: spot.Steps}
 		sAt, _ := approved.Step(step)
 		sEarly, _ := approved.Step(early.Step)
-		sNow, sIDs, sWhy := valueAt(sAt, path)
+		sNow, sIDs, sOK := valueAt(sAt, path)
 		sw, okWant, _ = entityValue(sEarly, leaf, sIDs)
-		want, against, okWant = sNow, "the approved run", okWant && sWhy == ""
+		want, against, okWant = sNow, "approved", okWant && sOK
 	}
-	if why != "" || !okW || !okV || !okWant {
-		return fmt.Sprintf("not settled: the runs show no %s of that record to compare%s", field, shown)
+	if !ok || !okW || !okV || !okWant {
+		return fmt.Sprintf("not settled: the runs show no %s of that record to compare", leaf), ""
 	}
-	by := shortRPC(at(read).Call)
-	if shown == "" {
-		by = read + " (" + by + ")"
+	by := read
+	if tell {
+		by = chain.RPCName(at(read).Call)
 	}
 	stored, as := v != w, now-v == want-sw
-	verdict, text, sep := fmt.Sprintf("not settled: %s or %s in %s", early.Step, late.Step, ref.chain), fmt.Sprintf("%s read %s=%s right after %s", by, field, compactValue(v), early.Step), " where "
+	verdict, side, text := fmt.Sprintf("not settled: %s or %s in %s", early.Step, late.Step, ref.chain), "", fmt.Sprintf("%s read %s=%s after %s", by, leaf, compactValue(v), early.Step)
 	switch {
 	case stored && as:
-		verdict, text = fmt.Sprintf("settled on the write %s (%s) in %s", early.Step, shortRPC(early.RPC), ref.chain), fmt.Sprintf("%s read %s=%s right after it where the write answered %s", by, field, compactValue(v), compactValue(w))
+		verdict, side, text = fmt.Sprintf("settled on the write %s in %s", early.Step, ref.chain), early.Step, fmt.Sprintf("%s read %s=%s after it where it answered %s", by, leaf, compactValue(v), compactValue(w))
 	case stored:
 		text += " where it answered " + compactValue(w)
 	case !as && w == sw:
-		verdict = fmt.Sprintf("settled on the write %s (%s) in %s", late.Step, shortRPC(late.RPC), ref.chain)
+		verdict, side = fmt.Sprintf("settled on the write %s in %s", late.Step, ref.chain), late.Step
 		fallthrough
 	default:
 		text += ", as it answered"
 	}
-	if as {
-		sep = ", as "
+	if side == early.Step {
+		return verdict + ": " + text, side
 	}
-	return fmt.Sprintf("%s: %s, and %s %s%s%s %s%s", verdict, text, late.Step, moved(v, now), sep, against, moved(sw, want), shown)
+	moved := fmt.Sprintf("%s %s, as %s", late.Step, delta(v, now), against)
+	if !as {
+		moved = fmt.Sprintf("%s %s (%s: %s)", late.Step, delta(v, now), against, delta(sw, want))
+	}
+	return fmt.Sprintf("%s: %s; %s", verdict, text, moved), side
 }
 
 func tellApartBody(m, read *catalog.Method, st *chain.Step, path string) map[string]any {
@@ -324,12 +386,12 @@ func reproRow(ctx context.Context, e *env, ref gateRef, fresh func(*chain.Chain,
 	}
 	if v := s.Verify; v.Outcome == sliceReproduced || v.Outcome == sliceIntermittent {
 		file = cmp.Or(s.Written, file)
-		flag, note := readBack(ctx, e, ref, file, vars)
+		flag := readBack(ctx, e, ref, file, vars)
 		kept := len(s.Kept)
 		if flag != "" {
 			kept++
 		}
-		return fmt.Sprintf("repro: shrt run %s%s  (%d of %d steps, %s%s%s)", shownPath(file), flag, kept, s.Total, outcomeWord(v.Outcome), v.countLabel(), note), file
+		return fmt.Sprintf("repro: shrt run %s%s (%d of %d steps, %s%s)", shownPath(file), flag, kept, s.Total, outcomeWord(v.Outcome), v.countLabel()), file
 	}
 	v := s.Verify
 	if why = outcomeWord(v.Outcome); v.err() != nil {
@@ -360,16 +422,16 @@ func clearingRead(e *env, ref gateRef) string {
 	return rec.Steps[i].ID
 }
 
-func readBack(ctx context.Context, e *env, ref gateRef, file string, vars []string) (string, string) {
+func readBack(ctx context.Context, e *env, ref gateRef, file string, vars []string) string {
 	r, path := ref.it.Reason, ""
 	if r.Kind != reasonStored || r.Read == "" {
-		return "", ""
+		return ""
 	}
 	c, err := e.resolveChain(ref.chain)
 	slice, sErr := chain.LoadFile(file)
 	rec, rErr := e.store.LatestRun(ref.chain)
 	if err != nil || sErr != nil || rErr != nil {
-		return "", ""
+		return ""
 	}
 	read, ok := c.Step(r.Read)
 	if st, found := rec.Step(r.Read); ok && found && st != nil {
@@ -380,7 +442,7 @@ func readBack(ctx context.Context, e *env, ref gateRef, file string, vars []stri
 		})
 	}
 	if _, kept := slice.Step(r.Read); path == "" || kept {
-		return "", ""
+		return ""
 	}
 	field := gateIndex.ReplaceAllString(path, "[]$1")
 	orig, _ := os.ReadFile(file)
@@ -400,11 +462,11 @@ func readBack(ctx context.Context, e *env, ref gateRef, file string, vars []stri
 	if writeSliceFile(file, slice) == nil {
 		items := gateExec(ctx, args).side.Items
 		if slices.ContainsFunc(items, func(x gateItem) bool { return x.Step == r.Step }) && slices.ContainsFunc(items, func(x gateItem) bool { return x.Step == r.Read && x.Path == path }) {
-			return " -keep-going", fmt.Sprintf("; the read-back %s (%s) reads %s=%s where the write answered %s", r.Read, chain.RPCName(read.Call), field, valueText(r.Got), valueText(r.Want))
+			return " -keep-going"
 		}
 	}
 	_ = os.WriteFile(file, orig, 0o644)
-	return "", ""
+	return ""
 }
 
 type sliceOut struct {
@@ -466,25 +528,29 @@ func gateMasks(ctx context.Context, chains []*gateChain) string {
 			}
 		}
 	}
-	more := ""
+	var more []string
 	if inLists > 0 {
-		more = fmt.Sprintf(", leaving out %d inside whole lists a step marks volatile, which hold whatever else the backend holds (%s)", inLists, chain.ListSome(lists, 3))
+		more = append(more, fmt.Sprintf("%d in whole volatile lists, not compared: %s", inLists, chain.ListSome(lists, 3)))
 	}
 	if len(unread) > 0 {
-		more += "; no record to read for " + chain.ListSome(unread, 5)
+		more = append(more, "no record for "+chain.ListSome(unread, 5))
 	}
 	switch {
 	case read == 0 && len(unread) == 0:
-		return "masks: no chain here has a safe spot, so verify masked nothing"
+		return "masks: none (no chain has a safe spot)"
+	case read == 0:
+		return "masks: none read (no record for " + chain.ListSome(unread, 5) + ")"
 	case len(beyond) == 0:
-		return fmt.Sprintf("masks: none of the %d masked or volatile value(s) in %d chain(s) differed beyond run tags, ids and timestamps%s; "+
-			"shrt verify <chain> -run latest -masked lists them", masked, read, more)
+		return fill("  ", fmt.Sprintf("masks: none of %d masked values in %s differ beyond run tags, ids, timestamps", masked, plural(read, "chain")), more...)
 	}
 	shown := beyond[:min(len(beyond), 10)]
 	if n := len(beyond) - len(shown); n > 0 {
 		shown = append(shown, fmt.Sprintf("and %d more: shrt verify <chain> -run latest -masked", n))
 	}
-	return fmt.Sprintf("masks: %d masked or volatile value(s) differed beyond run tags, ids and timestamps%s:\n  %s", len(beyond), more, strings.Join(shown, "\n  "))
+	for i := range shown {
+		shown[i] = capText(shown[i], lineMax-2)
+	}
+	return fmt.Sprintf("masks: %s %s beyond run tags, ids, timestamps:\n  ", plural(len(beyond), "masked value"), pluralWord(len(beyond), "differs", "differ")) + strings.Join(append(shown, more...), "\n  ")
 }
 
 func wholeList(c diff.Change) bool {
@@ -526,23 +592,24 @@ func gateGaps(ctx context.Context, e *env, gated []*gateChain, wait time.Duratio
 	_, plans := reachableRPCs(lib, e.cat)
 	gaps := slices.DeleteFunc(contract.StateGaps(chains, plans, lib, e.cat), func(g contract.StateGap) bool { return !covered[g.RPC] })
 	if len(gaps) == 0 {
-		return "gaps: none: each write this gate calls is called from every state its plan calls it from, with each item count", gapTally{}
+		return "gaps: none", gapTally{}
 	}
-	began, runs, lines, tally := time.Now(), map[string]*gapRun{}, []string{}, gapTally{left: max(len(gaps)-8, 0)}
+	runs, lines, tally := map[string]*gapRun{}, []string{}, gapTally{left: max(len(gaps)-8, 0)}
 	for i, g := range gaps[:min(len(gaps), 8)] {
 		lines = append(lines, "  "+g.Line())
 		if i >= gapProbes {
-			lines[len(lines)-1] += ": not probed: " + gapPlan(g.RPC)
+			lines = append(lines, "    not probed: "+gapPlan(g.RPC))
 			tally.left++
 			continue
 		}
 		if runs[g.RPC] == nil {
-			fmt.Fprintf(os.Stderr, "gate: -repro: planning %s into .shrt/scratch/ and running it once, for the state(s) no chain calls it from\n", chain.RPCName(g.RPC))
 			runs[g.RPC] = runGap(ctx, e, lib, g.RPC, wait)
 		}
 		probe := runs[g.RPC].probe(ctx, e, lib, g)
 		for _, line := range probe {
-			lines = append(lines, "    "+line)
+			for _, l := range strings.Split(line, "\n") {
+				lines = append(lines, "    "+l)
+			}
 		}
 		if strings.HasPrefix(probe[0], "not probed") {
 			tally.left++
@@ -556,9 +623,11 @@ func gateGaps(ctx context.Context, e *env, gated []*gateChain, wait time.Duratio
 	if len(gaps) > 8 {
 		lines = append(lines, fmt.Sprintf("  and %d more: shrt contract status -gaps", len(gaps)-8))
 	}
-	return fmt.Sprintf("gaps: %d state(s) no chain calls a gated write from, so no row above can show a fault there; -repro planned and ran %d of them "+
-		"in .shrt/scratch/ (%s). No safe spot covers these states, so a failure here is not comparable to an approved run; it fails what the contract and its plan expect, so treat it as a fault unless the contract is wrong:\n%s",
-		len(gaps), min(len(gaps), gapProbes), time.Since(began).Round(time.Second), strings.Join(lines, "\n")), tally
+	for i := range lines {
+		lines[i] = capText(lines[i], lineMax)
+	}
+	return fmt.Sprintf("gaps: %s no chain calls a gated write from, %d probed against the contract:\n%s",
+		plural(len(gaps), "state"), tally.probed, strings.Join(lines, "\n")), tally
 }
 
 func gapFile(rpc string) string {
@@ -596,7 +665,7 @@ func runGap(ctx context.Context, e *env, lib *contract.Library, rpc string, wait
 	}
 	r.c = plan.Chain
 	out := gateAttempt(ctx, "run", r.file, len(r.c.UnusedVarNames(map[string]any{chain.RunTagVar: ""})) == 0, wait)
-	r.side, r.why = out.side, lastLine(out)+"  (shrt run "+shownPath(r.file)+")"
+	r.side, r.why = out.side, lastLine(out)+" (shrt run "+shownPath(r.file)+")"
 	if ids, err := e.store.ListRuns(name); err == nil && len(ids) > 0 && out.code != 3 {
 		if rec, err := e.store.LoadRun(name, ids[len(ids)-1]); err == nil && !rec.StartedAt.Before(began.Truncate(time.Second)) {
 			r.rec = rec
@@ -628,7 +697,7 @@ func (r *gapRun) probe(ctx context.Context, e *env, lib *contract.Library, g con
 			}
 			byRPC[it.rpc()] = append(byRPC[it.rpc()], it)
 		case slices.Contains(calls, it.Step) && behind == "":
-			behind = fmt.Sprintf("not probed: %s %s; %s  (shrt run %s)", it.Step, it.headline(), it.Reason.in(said{row: true}), shown)
+			behind = fmt.Sprintf("not probed: %s %s; %s (shrt run %s)", it.Step, it.headline(), it.Reason.in(said{row: true}), shown)
 		}
 	}
 	var fails, passes []rowCall
@@ -653,9 +722,9 @@ func (r *gapRun) probe(ctx context.Context, e *env, lib *contract.Library, g con
 			return []string{behind}
 		}
 		if len(calls) == 0 || len(passes) < len(calls) {
-			return []string{fmt.Sprintf("not probed: %d of its plan's %d call(s) from that state passed, and none failed  (shrt run %s)", len(passes), len(calls), shown)}
+			return []string{fmt.Sprintf("not probed: %d of %s from that state passed, none failed (shrt run %s)", len(passes), plural(len(calls), "call"), shown)}
 		}
-		return []string{fmt.Sprintf("passes: %d call(s) from that state, %s  (shrt run %s)", len(calls), chain.ListSome(calls, 3), shown)}
+		return []string{fmt.Sprintf("passes: %s from that state (shrt run %s)", plural(len(calls), "call"), shown)}
 	}
 	var out []string
 	for _, rpc := range order {
@@ -670,17 +739,15 @@ func (r *gapRun) probe(ctx context.Context, e *env, lib *contract.Library, g con
 				ex = it
 			}
 		}
-		line := fmt.Sprintf("%s: %d step(s) in 1 chain(s); e.g. %s %s", strings.TrimSpace(rpc+" "+chain.ListSome(fields, 3)), len(steps), r.c.Name, ex.Step)
-		if why := ex.Reason.in(said{step: ex.Step, rpc: rpc}); why != "" {
-			line += "; " + why
-		} else {
+		why := ex.Reason.in(said{step: ex.Step, rpc: rpc})
+		if why == "" {
 			path, eg := ex.shown()
-			line += " " + path + " " + eg
+			why = " " + path + " " + eg
 			if st, found := r.rec.Step(ex.Step); found && st != nil && refusalOf(st) != "" && refusalOf(st) != ex.Got {
-				line += " (" + refusalOf(st) + ")"
+				why += " (" + refusalOf(st) + ")"
 			}
 		}
-		out = append(out, line)
+		out = append(out, rowLine("", strings.TrimSpace(rpc+" "+chain.ListSome(fields, 3)), len(steps), 1, r.c.Name+" "+ex.Step, why))
 		repro, file := r.repro(ctx, e, lib, g.RPC, calls, ex)
 		if rpc == shortRPC(g.RPC) {
 			if trigger, against := firmTrigger(ctx, e, file, gateRef{chain: r.c.Name, it: ex}, fails, passes); against != "" {

@@ -17,7 +17,7 @@ func TestRedactedValuesAreCountedAsNeverCompared(t *testing.T) {
 	if rep.Redacted != 1 || len(rep.RedactedPaths) != 1 || rep.RedactedPaths[0] != "fetch_order product.qty_on_hand" {
 		t.Fatalf("a redacted value is blanked on both sides, so it is never compared and must be counted: %+v", rep)
 	}
-	if !strings.Contains(rep.Text(), "not counted: 1") || !strings.Contains(rep.MaskedList(), "redact paths, blanked in the records, not compared:\n  fetch_order product.qty_on_hand") {
+	if !strings.Contains(rep.MaskedList(), "redact paths, blanked in the records, not compared:\n  fetch_order product.qty_on_hand") {
 		t.Fatalf("the report must say which redacted values were not compared:\n%s\n%s", rep.Text(), rep.MaskedList())
 	}
 }
@@ -103,7 +103,7 @@ func TestVolatileAddedAfterApprovalIsReportedAndCounted(t *testing.T) {
 		t.Errorf("values hidden only by unapproved patterns = %v", rep.UnapprovedMasked)
 	}
 	text := rep.Text()
-	for _, want := range []string{"did not approve", "**.total_minor", "fetch_order order.total_minor", "not counted: 2 "} {
+	for _, want := range []string{"did not approve", "**.total_minor", "fetch_order order.total_minor"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("report must say %q:\n%s", want, text)
 		}
@@ -244,13 +244,13 @@ func TestAVolatileListShowsItsLengthOnlyWhenItsOwnExpectationFailed(t *testing.T
 		st.Expect = []chain.ExpectResult{{Path: "products", Rule: "includes", Want: map[string]any{"id": "a"}, Got: 1}}
 		return st
 	}
-	want := "[list_all] length     products want=3 item(s) got=1 item(s) (" + diff.VolatileFailed + ")"
+	want := "[list_all] length products want=3 got=1"
 	rep := diff.CompareMasking(spotOf([]string{"products"}, step("list_all", long)), recOf(failed()), nil)
 	if !strings.Contains(rep.Text(), want) {
 		t.Fatalf("a volatile list whose expectation failed must show its length change:\n%s", rep.Text())
 	}
 	runs := compareRuns(runOf("run-a", stepAs("list_all", runner.StatusPassed, long)), runOf("run-b", failed()), "products")
-	if !strings.Contains(runs.Text(), "products a=3 item(s) b=1 item(s) ("+diff.VolatileFailed+")") {
+	if !strings.Contains(runs.Text(), "[list_all] length products a=3 b=1") {
 		t.Fatalf("diff must show the length change too:\n%s", runs.Text())
 	}
 	quiet := diff.CompareMasking(spotOf([]string{"products"}, step("list_all", long)), recOf(step("list_all", short)), nil)

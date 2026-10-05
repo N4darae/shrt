@@ -1,30 +1,22 @@
 # AddStock answers 5 and stores nothing: ListProducts reads 0 too, so the write
 $ shrt gate -repro  [exit 1]
-FAIL       shelf  regression: get_product (ProductService/GetProduct) product.qty_on_hand want=5 got=0; unclear: write add_stock (StockService/AddStock) or the read
+FAIL shelf  get_product (GetProduct) product.qty_on_hand want=5 got=0; suspect write add_stock (AddStock), settled by -repro
 failures by suspect rpc:
-  StockService/AddStock or the read ProductService/GetProduct product.qty_on_hand: 1 step(s) in 1 chain(s); e.g. shelf get_product
-offline: shrt verify <chain> -run latest lists every changed value of the run this gate just made (every failed expectation for a chain with no safe spot), as -v does, without re-sending
-coverage: 11 rpc(s) have no contract, so no planned probes (boundaries, other roles, missing tokens, read-backs); shrt contract init -all, then shrt contract plan -all -write
-repro, for each row of failures by suspect rpc:
-  StockService/AddStock or the read ProductService/GetProduct product.qty_on_hand
-    settled on the write add_stock (StockService/AddStock): ProductService/ListProducts read product.qty_on_hand=0, as GetProduct did, where the write answered 5  (shrt run .shrt/scratch/shelf-tell-apart-get_product.yaml)
-    repro: shrt run .shrt/scratch/shelf-slice-get_product.yaml  (3 of 3 steps, reproduced 3/3)
-masks: none of the 5 masked or volatile value(s) in 1 chain(s) differed beyond run tags, ids and timestamps; shrt verify <chain> -run latest -masked lists them
-gate: -repro: writing and verifying a repro for each of 1 suspect rpc(s), each slice sent 3 times
-shrt gate: FAIL: 1 of 1 chain(s) failed; the rows and repro lines above are the answer for what the chains cover; probe further only for a support ticket no row explains
+  AddStock product.qty_on_hand: 1 step in 1 chain, e.g. shelf get_product; write add_stock
+    settled on the write add_stock: ListProducts read product.qty_on_hand=0, as GetProduct did, where it answered 5
+    repro: shrt run .shrt/scratch/shelf-slice-get_product.yaml (3 of 3 steps, reproduced 3/3)
+coverage: 11 rpcs without a contract: shrt contract init -all, then shrt contract plan -all -write
+masks: none of 5 masked values in 1 chain differ beyond run tags, ids, timestamps
+shrt gate: FAIL: 1 of 1 chain failed
 
 # GetProduct reads one short: ListProducts reads the 5 AddStock answered, so the read
 $ shrt gate -repro  [exit 1]
-FAIL       shelf  regression: get_product (ProductService/GetProduct) product.qty_on_hand want=5 got=4; unclear: write add_stock (StockService/AddStock) or the read
+FAIL shelf  get_product (GetProduct) product.qty_on_hand want=5 got=4; suspect the read, settled by -repro
 failures by suspect rpc:
-  StockService/AddStock or the read ProductService/GetProduct product.qty_on_hand: 1 step(s) in 1 chain(s); e.g. shelf get_product
-offline: shrt verify <chain> -run latest lists every changed value of the run this gate just made (every failed expectation for a chain with no safe spot), as -v does, without re-sending
-coverage: 11 rpc(s) have no contract, so no planned probes (boundaries, other roles, missing tokens, read-backs); shrt contract init -all, then shrt contract plan -all -write
-repro, for each row of failures by suspect rpc:
-  StockService/AddStock or the read ProductService/GetProduct product.qty_on_hand
-    settled on the read get_product (ProductService/GetProduct): ProductService/ListProducts read product.qty_on_hand=5, as the write add_stock answered, where GetProduct read 4  (shrt run .shrt/scratch/shelf-tell-apart-get_product.yaml)
-    repro: shrt run .shrt/scratch/shelf-slice-get_product.yaml  (3 of 3 steps, reproduced 3/3)
-masks: none of the 5 masked or volatile value(s) in 1 chain(s) differed beyond run tags, ids and timestamps; shrt verify <chain> -run latest -masked lists them
-gate: -repro: writing and verifying a repro for each of 1 suspect rpc(s), each slice sent 3 times
-shrt gate: FAIL: 1 of 1 chain(s) failed; the rows and repro lines above are the answer for what the chains cover; probe further only for a support ticket no row explains
+  GetProduct product.qty_on_hand: 1 step in 1 chain, e.g. shelf get_product; answers product.qty_on_hand unlike what ListProducts returned
+    settled on the read get_product: ListProducts read product.qty_on_hand=5, as the write add_stock answered, where GetProduct read 4
+    repro: shrt run .shrt/scratch/shelf-slice-get_product.yaml (3 of 3 steps, reproduced 3/3)
+coverage: 11 rpcs without a contract: shrt contract init -all, then shrt contract plan -all -write
+masks: none of 5 masked values in 1 chain differ beyond run tags, ids, timestamps
+shrt gate: FAIL: 1 of 1 chain failed
 

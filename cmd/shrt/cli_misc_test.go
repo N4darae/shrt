@@ -279,8 +279,8 @@ func TestProgressColumnsAlignForALongStepID(t *testing.T) {
 	out := captureStdout(t, func() { _ = runRun(context.Background(), []string{"cli-long-ids"}) })
 	cols := []int{}
 	for _, line := range strings.Split(out, "\n") {
-		if i := strings.Index(line, "ThingService/"); i >= 0 && (strings.Contains(line, long) || strings.Contains(line, " fetch ")) {
-			cols = append(cols, i)
+		if f := strings.Fields(line); len(f) == 5 && (f[2] == long || f[2] == "fetch") {
+			cols = append(cols, strings.LastIndex(line, " "+f[3]+" "))
 		}
 	}
 	if len(cols) != 2 || cols[0] != cols[1] {

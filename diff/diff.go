@@ -1108,9 +1108,9 @@ func (c Change) Moves() string {
 func (c Change) describe() string {
 	out := c.describeValues()
 	if c.ReplayPath != "" {
-		out += " (this item is at " + c.ReplayPath + " in this run: an unordered list is paired by content, and the path names the safe spot's index)"
+		out += " (at " + c.ReplayPath + " in this run)"
 	}
-	if c.Detail != "" {
+	if c.Detail != "" && c.Detail != VolatileFailed {
 		out += " (" + c.Detail + ")"
 	}
 	return out
@@ -1122,16 +1122,13 @@ func (c Change) describeValues() string {
 		if c.Kind == KindMissing {
 			got = "absent"
 		}
-		return fmt.Sprintf("want=%s (as the approved run answered) got=%s: refused %s", jsonKind(c.Want), got, c.Refused)
+		return fmt.Sprintf("want=%s got=%s: refused %s", jsonKind(c.Want), got, c.Refused)
 	}
 	if c.Kind == KindNotReached {
 		if c.Got == nil {
 			return fmt.Sprintf("want=%s got=not recorded", show(c.Want))
 		}
 		return fmt.Sprintf("want=%s got=%s, %s", show(c.Want), show(c.Got), sentOrNot(c.Detail))
-	}
-	if c.Kind == KindLength || c.Kind == KindMembership {
-		return fmt.Sprintf("want=%s item(s) got=%s item(s)", show(c.Want), show(c.Got))
 	}
 	if c.Path == "step" && c.Kind == KindMissing {
 		return fmt.Sprintf("want=%s got=absent", show(c.Want))
@@ -1240,15 +1237,6 @@ func (r *Report) MaskedList() string {
 	return strings.TrimRight(b.String(), "\n")
 }
 
-func (r *Report) NotCountedLine() string {
-	n := r.Masked + r.VolatileMasked + len(r.FixtureEchoed) + len(r.FixtureInput) +
-		len(r.RedactedPaths) + len(r.ScrubbedPaths) + len(r.UnsentDefaults) + len(r.UndeclaredSame)
-	if n == 0 {
-		return ""
-	}
-	return fmt.Sprintf("not counted: %d (-masked lists them)", n)
-}
-
 func (r *Report) QuietText() string {
 	if !r.Clean() || r.PrincipalChanged() || len(r.FullyMasked) > 0 || len(r.UnapprovedVolatile) > 0 ||
 		len(r.UnapprovedRedact) > 0 || len(r.RequestChanges) > 0 || len(r.RenamedSteps) > 0 {
@@ -1332,8 +1320,7 @@ func (r *Report) Text() string {
 	if len(r.RequestChanges) > 0 {
 		cause := "its input changed since it was confirmed"
 		if r.OnlyChainChanged() {
-			cause = "the chain changed since it was confirmed; a step, expectation or body or header reference edit is a chain change, not an input change, " +
-				"and an expectation edit explains a status change at its own step only, and only when the edited expectation failed"
+			cause = "the chain changed since it was confirmed"
 		}
 		if r.InputCause != "" {
 			cause = r.InputCause
@@ -1348,7 +1335,7 @@ func (r *Report) Text() string {
 	}
 	if r.Clean() {
 		b.WriteString(r.noDrift())
-		return strings.TrimRight(b.String()+"\n"+r.NotCountedLine(), "\n")
+		return b.String()
 	}
 	unexplained := len(r.Unexplained())
 	mixed := len(r.RequestChanges) > 0 && unexplained > 0
@@ -1391,13 +1378,13 @@ func (r *Report) Text() string {
 		if r.folded[c.Step] && c.Kind != KindNotReached {
 			if !foldSaid[c.Step] {
 				foldSaid[c.Step] = true
-				fmt.Fprintf(&b, "  [%s] %-10s %d change(s) not listed: %s\n", step, "not_judged", r.foldedCount(c.Step), r.foldWhy)
+				fmt.Fprintf(&b, "  [%s] not_judged %d change(s) not listed: %s\n", step, r.foldedCount(c.Step), r.foldWhy)
 			}
 			continue
 		}
 		if run := sameNotReached(r.Changes[i:]); run > 1 {
 			last := r.Changes[i+run-1]
-			fmt.Fprintf(&b, "  [%s..%s] %-10s %d step(s) want=%v, %s (%s)\n", step, last.Step, c.Kind, run, c.Want, sentOrNot(c.Detail), c.Detail)
+			fmt.Fprintf(&b, "  [%s..%s] %s %d steps, %s\n", step, last.Step, c.Kind, run, notSent(c.Detail))
 			i += run - 1
 			continue
 		}
@@ -1405,7 +1392,7 @@ func (r *Report) Text() string {
 			continue
 		}
 		if fr, ok := renamedAt[i]; ok {
-			fmt.Fprintf(&b, "  [%s] %-10s %s\n", step, "renamed", fr.line())
+			fmt.Fprintf(&b, "  [%s] renamed %s\n", step, fr.line())
 			continue
 		}
 		after := ""
@@ -1422,11 +1409,20 @@ func (r *Report) Text() string {
 			fmt.Fprintf(&b, "  [step order] moved: %s (was %v; now %v)%s\n", c.Moves(), c.Want, c.Got, after)
 			continue
 		}
-		fmt.Fprintf(&b, "  [%s] %-10s %s %s%s\n", step, c.Kind, c.Path, c.describe(), after)
+		if c.Kind == KindNotReached && c.Detail != "" {
+			fmt.Fprintf(&b, "  [%s] %s %s%s\n", step, c.Kind, notSent(c.Detail), after)
+			continue
+		}
+		fmt.Fprintf(&b, "  [%s] %s %s %s%s\n", step, c.Kind, c.Path, c.describe(), after)
 	}
-	b.WriteString(renameText(renames))
-	b.WriteString(r.NotCountedLine())
 	return strings.TrimRight(b.String(), "\n")
+}
+
+func notSent(detail string) string {
+	if strings.HasPrefix(detail, "not sent") {
+		return detail
+	}
+	return sentOrNot(detail) + " (" + detail + ")"
 }
 
 func failedExpectation(st *runner.StepRecord) string {

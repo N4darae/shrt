@@ -100,13 +100,13 @@ func TestATriggerOnTheProfileSaysWhoseCallItIs(t *testing.T) {
 	}{
 		{"a clerk's confirm of an admin's order fails and an admin's confirm of a clerk's order passes",
 			[]rowCall{call("a", "clerk", "default"), call("b", "clerk", "clerk", "default")}, []rowCall{call("c", "default", "default"), call("d", "default", "clerk")},
-			"trigger: fails when ConfirmOrder itself is sent as clerk (2 calls; 1 of them acts on records created as default, so the creator need not be clerk; 1 of them acts on records created as clerk too); passes as default (2 calls; 1 of them acts on records created as clerk, so that alone does not fail it)"},
+			"trigger: fails when ConfirmOrder is sent as clerk (2 calls; 1 on records created as default); passes as default (2 calls; 1 on records created as clerk)"},
 		{"only the passing side shows it, so only the passing side says it, and nothing of a clerk acting on its own records",
 			[]rowCall{call("a", "clerk", "clerk"), call("b", "clerk", "clerk")}, []rowCall{call("c", "default", "clerk"), call("d", "default", "clerk"), call("e", "default", "default")},
-			"trigger: fails when ConfirmOrder itself is sent as clerk (2 calls); passes as default (3 calls; 2 of them act on records created as clerk, so that alone does not fail it)"},
+			"trigger: fails when ConfirmOrder is sent as clerk (2 calls); passes as default (3 calls; 2 on records created as clerk)"},
 		{"every failing call acts on another profile's records",
 			[]rowCall{call("a", "clerk", "default"), call("b", "clerk", "default")}, []rowCall{call("c", "default", "default")},
-			"trigger: fails when ConfirmOrder itself is sent as clerk (2 calls; each acts on records created as default, so the creator need not be clerk); passes as default (1 call)"},
+			"trigger: fails when ConfirmOrder is sent as clerk (2 calls; all on records created as default); passes as default (1 call)"},
 		{"every failing call uses the clerk's steps and no passing one does, so the records cannot tell", []rowCall{call("a", "clerk", "clerk")}, []rowCall{call("c", "default", "default")},
 			"trigger: fails as clerk (1 call); passes as default (1 call)"},
 		{"a failing call that uses no step tells nothing", []rowCall{call("a", "clerk")}, []rowCall{call("c", "default", "default")},
@@ -258,7 +258,7 @@ func TestATriggerCountsOnlyTheCallsTheGateCheckedOnTheRowsField(t *testing.T) {
 					shopStep("create_c", shopOrder, order).as("clerk"),
 					shopStep("fetch_a", shopFetch, order, "create_c").with(requested(`{"id_order":"o1"}`))),
 			},
-			"    trigger: fails when FetchOrder itself is sent as clerk (1 call; it acts on records created as default, so the creator need not be clerk); passes as default (1 call; it acts on records created as clerk, so that alone does not fail it)\n"},
+			"    trigger: fails when FetchOrder is sent as clerk (1 call; on records created as default); passes as default (1 call; on records created as clerk)\n"},
 		{"a name cut short: its length splits the calls, not the email's, and got keeps the first 20 bytes",
 			[]*gateChain{gateRun("customers", []gateItem{named("long", long), named("longer", longer)},
 				customer("long", long), customer("longer", longer), customer("short", "Ann"), customer("mid", "Customer t3-abcdef"))},
@@ -413,7 +413,7 @@ func TestGoldenGateTrigger(t *testing.T) {
 		trigger := "\n    trigger: " + c.trigger + "\n"
 		slice := strings.ReplaceAll(c.example, " ", "-slice-")
 		if code != 1 || strings.Contains(out, trigger) != (c.trigger != "") || strings.Contains(out, "trigger:") != (c.trigger != "") ||
-			!strings.Contains(out, "e.g. "+c.example+"\n") || !strings.Contains(out, "repro: shrt run .shrt/scratch/"+slice+".yaml  (3 of 4 steps, reproduced 3/3)") {
+			!strings.Contains(out, "e.g. "+c.example+"\n") || !strings.Contains(out, "repro: shrt run .shrt/scratch/"+slice+".yaml (3 of 4 steps, reproduced 3/3)") {
 			t.Errorf("%s: got %d:\n%s", c.name, code, out)
 		}
 	}
@@ -438,9 +438,9 @@ func TestGateReproSettlesEachUnclearWriteAndReadPairInARow(t *testing.T) {
 	writeFile(t, ".shrt/chains/shelf-list.yaml", listed[:strings.Index(listed, "    - id: get_product")]+list)
 	writeFile(t, ".shrt/chains/shelf-both.yaml", strings.Replace(shelfChain, "name: shelf", "name: shelf-both", 1)+list)
 	out, code := shrtOut(t, "gate", "-repro", "-no-session-check", "-hollow-baseline", "")
-	_, block, _ := strings.Cut(out, "repro, for each row of failures by suspect rpc:\n")
-	if code != 1 || strings.Count(block, "settled on the write add_stock") != 2 || !strings.Contains(block, "ProductService/ListProducts read product.qty_on_hand=0") ||
-		!strings.Contains(block, "ProductService/GetProduct read products[].qty_on_hand=0") {
+	_, block, _ := strings.Cut(out, "failures by suspect rpc:\n")
+	if code != 1 || strings.Count(block, "settled on the write add_stock") != 2 || !strings.Contains(block, "ListProducts read product.qty_on_hand=0") ||
+		!strings.Contains(block, "GetProduct read products[].qty_on_hand=0") {
 		t.Errorf("one row holds the write against GetProduct and against ListProducts, and -repro settles both pairs, got %d:\n%s", code, out)
 	}
 }

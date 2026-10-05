@@ -69,8 +69,8 @@ func runGateOut(t *testing.T, args ...string) (string, int) {
 func TestTheGateRunsEveryChainAndVerifiesEverySafeSpotWithAFreshTag(t *testing.T) {
 	f := gateWorkspace(t, nil)
 	out, code := runGateOut(t)
-	if code != 0 || !strings.Contains(out, "PASS       cli-thing-flow") || !strings.Contains(out, "PASS       cli-unique") ||
-		!strings.Contains(out, "gate: PASS: 2 chain(s)") {
+	if code != 0 || !strings.Contains(out, "PASS cli-thing-flow, cli-unique\n") ||
+		!strings.Contains(out, "gate: PASS: 2 chains") {
 		t.Fatalf("a green gate prints PASS per chain and exits 0, got %d:\n%s", code, out)
 	}
 	got := []string{}
@@ -139,12 +139,12 @@ func TestTheGateDoesNotRetryAFailureAndGroupsItsCauses(t *testing.T) {
 		t.Fatalf("a failure fails the gate at once, exit 1, got %d:\n%s", code, out)
 	}
 	for _, want := range []string{
-		"FAIL       cli-thing-flow  create (ThingService/Create) items.0.price want=250 got=249",
+		"FAIL cli-thing-flow  create (Create) items.0.price want=250 got=249",
 		"  REGRESSION: something",
-		"FAIL       cli-unique      fetch_2 (ThingService/Fetch) count want≠0 got=0; suspect write create (ThingService/Create)\n",
-		"  ThingService/Create items[].price, count: 4 step(s) in 2 chain(s); e.g. cli-thing-flow create items[].price want=250 got=249\n",
-		"  ThingService/Fetch name: 1 step(s) in 1 chain(s); e.g. cli-unique fetch name want=a got=b\n",
-		"FAIL: 2 of 2 chain(s) failed",
+		"FAIL cli-unique  fetch_2 (Fetch) count want≠0 got=0; suspect write create (Create)\n",
+		"  Create items[].price, count: 4 steps in 2 chains, e.g. cli-thing-flow create items[].price want=250 got=249\n",
+		"  Fetch name: 1 step in 1 chain, e.g. cli-unique fetch name want=a got=b\n",
+		"FAIL: 2 of 2 chains failed",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("want %q in:\n%s", want, out)
@@ -178,7 +178,7 @@ func TestTheGateKeepsKeptRedAndChecksTheHollowRatchet(t *testing.T) {
 	writeFile(t, ".shrt/hollow-baseline", "0\n")
 	var err error
 	out := captureStdout(t, func() { err = runGate(context.Background(), nil) })
-	if !strings.Contains(out, "KEPT RED   cli-unique") || exitCodeOf(err) != 1 || !strings.Contains(out, "hollow ratchet: 2 reported, worse than the baseline 0.\n") {
+	if !strings.Contains(out, "KEPT RED cli-unique") || exitCodeOf(err) != 1 || !strings.Contains(out, "hollow ratchet: 2 reported, worse than the baseline 0.\n") {
 		t.Fatalf("kept red is its own verdict, and a ratchet failure fails the gate with the error's first line: %v\n%s", err, out)
 	}
 	if last := f.calls[len(f.calls)-1]; strings.Join(last, " ") != "chain hollow -gate -baseline .shrt/hollow-baseline" {
@@ -192,7 +192,7 @@ func TestTheGateWritesAMissingHollowBaseline(t *testing.T) {
 	var err error
 	out := captureStdout(t, func() { err = runGate(context.Background(), nil) })
 	raw, _ := os.ReadFile(".shrt/hollow-baseline")
-	if err != nil || string(raw) != "2\n" || !strings.Contains(out, "hollow ratchet: .shrt/hollow-baseline did not exist; wrote today's count, 2, to it") {
+	if err != nil || string(raw) != "2\n" || !strings.Contains(out, "hollow ratchet: wrote today's count, 2, to .shrt/hollow-baseline: commit it") {
 		t.Fatalf("a missing baseline is written with today's count on the first gate: %v %q\n%s", err, raw, out)
 	}
 }
@@ -212,14 +212,14 @@ func TestTheGateReadsWhatARealRunAndVerifyReport(t *testing.T) {
 	driftWorkspace(t, &name, &extra)
 	inProcessGate(t)
 	out, code := runGateOut(t)
-	if code != 0 || !strings.Contains(out, "PASS       cli-thing-flow") {
+	if code != 0 || !strings.Contains(out, "PASS cli-thing-flow") {
 		t.Fatalf("green, got %d:\n%s", code, out)
 	}
 	name = "gadget"
 	out, code = runGateOut(t)
-	if code != 1 || !strings.Contains(out, "FAIL       cli-thing-flow  regression: fetch (ThingService/Fetch) name want=widget got=gadget") ||
-		!strings.Contains(out, "got=gadget; suspect write create (ThingService/Create)\n") ||
-		!strings.Contains(out, "  ThingService/Create name: 1 step(s) in 1 chain(s); e.g. cli-thing-flow fetch; write create\n") {
+	if code != 1 || !strings.Contains(out, "FAIL cli-thing-flow  fetch (Fetch) name want=widget got=gadget") ||
+		!strings.Contains(out, "got=gadget; suspect write create (Create)\n") ||
+		!strings.Contains(out, "  Create name: 1 step in 1 chain, e.g. cli-thing-flow fetch; write create\n") {
 		t.Fatalf("a changed name fails the gate and is grouped, got %d:\n%s", code, out)
 	}
 }
@@ -236,7 +236,7 @@ func TestTheGateFailLineSaysWhatVerifyCallsItAndEachNoteOnce(t *testing.T) {
 		"verify cli-thing-flow": {{code: 1, side: gateSidecar{Latency: latency(702), RunToo: true, Items: []gateItem{classed}}}},
 	})
 	out, _ := runGateOut(t)
-	if !strings.Contains(out, "FAIL       cli-thing-flow  order changed: fetch (ThingService/Fetch) items.0.id want=a got=b") {
+	if !strings.Contains(out, "FAIL cli-thing-flow  order changed: fetch (Fetch) items.0.id want=a got=b") {
 		t.Errorf("the FAIL line carries verify's class of its first failure:\n%s", out)
 	}
 	if n := strings.Count(out, "LATENCY: Fetch at step fetch"); n != 1 {
@@ -270,10 +270,10 @@ func TestTheGateNamesASlowRpcAsItsOwnSuspect(t *testing.T) {
 		"verify cli-thing-flow": {{code: 1, side: gateSidecar{Items: items}}},
 	})
 	out, code := runGateOut(t)
-	if code != 1 || !strings.Contains(out, "ThingService/List latency: 2 step(s) in 1 chain(s); e.g. cli-thing-flow list; slower than in the safe spot's run") {
+	if code != 1 || !strings.Contains(out, "List latency: 2 steps in 1 chain, e.g. cli-thing-flow list; slower than in the safe spot's run") {
 		t.Fatalf("a latency regression is grouped under the slow rpc itself, got %d:\n%s", code, out)
 	}
-	if !strings.Contains(out, "list (ThingService/List) latency safe spot 3ms, now 701ms (+698ms)") || strings.Contains(out, "want=3ms") {
+	if !strings.Contains(out, "list (List) latency safe spot 3ms, now 701ms (+698ms)") || strings.Contains(out, "want=3ms") {
 		t.Errorf("a latency change reads as the safe spot's and this run's time, not a threshold:\n%s", out)
 	}
 }
@@ -306,13 +306,10 @@ func TestTheGateRunsAChainWithoutASafeSpotPastItsFirstFailure(t *testing.T) {
 }
 
 func TestTheFailLineCountsTheGapProbesThatFailedApartFromTheChainsVerdict(t *testing.T) {
-	if got := gateAlso(1, 0) + gapsFailedNote(1, "also "); got != ", 1 no verdict; 1 gap probe also failed (a state no safe spot covers, so not comparable to an approved run)" {
+	if got := gateAlso(1, 0, 1, 0); got != ", 1 no verdict, 1 gap probe failed" {
 		t.Errorf("got %q", got)
 	}
-	if got := gapsFailedNote(2, ""); got != "; 2 gap probes failed (states no safe spot covers, so not comparable to an approved run)" {
-		t.Errorf("got %q", got)
-	}
-	if got := gateAlso(0, 2) + gapsFailedNote(0, "also "); got != ", 2 finding(s) listed above" {
+	if got := gateAlso(0, 2, 0, 1); got != ", 2 findings above, 1 skipped" {
 		t.Errorf("no failed gap probe says nothing of gaps: %q", got)
 	}
 }
@@ -323,7 +320,7 @@ func TestVerifyOfARecordedRunOfAChainWithoutASafeSpotListsItsFailedExpectations(
 	out := captureStdout(t, func() { err = runVerify(context.Background(), []string{"cli-two-defects", "-run", "latest"}) })
 	var shown shownError
 	if !errors.As(err, &shown) || !strings.Contains(err.Error(), "no safe spot yet") ||
-		!strings.Contains(out, "cli-two-defects: FAILED its own expectations in run ") || !strings.Contains(out, ", with no safe spot to diff it against; first: fetch (") ||
+		!strings.Contains(out, "cli-two-defects: FAILED in run ") || !strings.Contains(out, ", no safe spot; first: fetch (") ||
 		!strings.Contains(out, "    [fetch] name want=gadget got=widget (and 1 more at fetch_again)\n") {
 		t.Fatalf("the offline hint works for a chain with no safe spot: it lists the run's failed expectations as gate -v does (%v):\n%s", err, out)
 	}
