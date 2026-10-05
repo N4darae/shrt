@@ -410,8 +410,8 @@ func TestGateReproFirmsUpARowsTriggerThatRestsOnOneCall(t *testing.T) {
 		refuse func(int) bool
 		want   string
 	}{
-		{func(n int) bool { return n >= 3 }, "    trigger: fails with lines of 3+ items (2 calls: 3, 4); passes with lines of up to 2 items (3 calls: 1, 2) [firmed by -repro]\n    repro: "},
-		{func(n int) bool { return n == 3 }, "    trigger: none: sent again with lines of 4 items, the call passed [firmed by -repro]\n    repro: "},
+		{func(n int) bool { return n >= 3 }, "    trigger: fails with 3+ lines (2 calls: 3, 4 lines); passes with up to 2 lines (3 calls: 1, 2 lines) [firmed by -repro]\n    repro: "},
+		{func(n int) bool { return n == 3 }, "    trigger: none: sent again with 4 lines, the call passed [firmed by -repro]\n    repro: "},
 	} {
 		shop := newFakeShop()
 		chdirToFakeShop(t, shop)
@@ -425,7 +425,7 @@ func TestGateReproFirmsUpARowsTriggerThatRestsOnOneCall(t *testing.T) {
 		}
 		shop.refuseOrder = c.refuse
 		out, _ := shrtOut(t, "gate", "-repro", "-no-session-check", "-hollow-baseline", "")
-		if strings.Contains(out, "    trigger: fails with lines of 3+ items (1 call); passes with lines of up to 2 items (2 calls: 1, 2)\n") || !strings.Contains(out, c.want) {
+		if strings.Contains(out, "    trigger: fails with 3+ lines (1 call); passes with up to 2 lines (2 calls: 1, 2 lines)\n") || !strings.Contains(out, c.want) {
 			t.Fatalf("under -repro a 3-line order refused beside a 1- and 2-line one is sent with 4 and 2 lines, and the row's trigger says what they showed:\n%s", out)
 		}
 	}

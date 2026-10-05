@@ -446,7 +446,7 @@ func everyCall(fails []rowCall) string {
 			if ns[0] != ns[len(ns)-1] {
 				of += " to " + shown(ns[len(ns)-1])
 			}
-			span = append(span, list+" of "+of+map[bool]string{true: " item", false: " items"}[of == "1"])
+			span = append(span, countOf(list, of))
 		}
 	}
 	return strings.TrimSuffix(fmt.Sprintf("fails on every call (%d of %d; %s", n, n, strings.Join(span, ", ")), "; ") + ")"
@@ -542,9 +542,11 @@ func triggerSide(calls, other []rowCall, keys []string, notes ...string) string 
 		p, x := dimPhrase(calls, other, k)
 		parts, extra = append(parts, p), append(extra, x)
 		if ns := numbers(dimValues(calls, k)); strings.HasPrefix(k, "len ") && len(ns) > 1 {
-			for i, n := range ns {
-				extra[0] += map[bool]string{true: ": ", false: ", "}[i == 0] + shown(n)
+			var each []string
+			for _, n := range ns {
+				each = append(each, shown(n))
 			}
+			extra[0] += ": " + countOf(strings.TrimPrefix(k, "len "), strings.Join(each, ", "))
 		}
 	}
 	return strings.Join(parts, " ") + " (" + strings.Join(slices.DeleteFunc(append(extra, notes...), func(x string) bool { return x == "" }), "; ") + ")"
@@ -566,10 +568,7 @@ func dimPhrase(calls, other []rowCall, k string) (string, string) {
 		for _, n := range numbers(dimValues(calls, "len "+name)) {
 			ns = append(ns, shown(n))
 		}
-		lengths := name + " of " + andList(ns) + " items"
-		if len(ns) == 1 && ns[0] == "1" {
-			lengths = name + " of 1 item"
-		}
+		lengths := countOf(name, andList(ns))
 		if vals[0] == "" {
 			return "with distinct " + strings.Join(dimValues(other, k), " or "), lengths
 		}
@@ -584,6 +583,12 @@ func dimPhrase(calls, other []rowCall, k string) (string, string) {
 	switch {
 	case kind == "len" && hi == 0:
 		return "with no " + name, ""
+	case kind == "len" && lo > top:
+		return "with " + countOf(name, shown(lo)+"+"), ""
+	case kind == "len" && lo == hi:
+		return "with " + countOf(name, shown(lo)), ""
+	case kind == "len":
+		return "with " + countOf(name, "up to "+shown(hi)), ""
 	case kind == "num" && lo == top+1:
 		return "with " + name + " above " + shown(top), ""
 	case kind == "bytes" && lo == top+1:
@@ -596,6 +601,19 @@ func dimPhrase(calls, other []rowCall, k string) (string, string) {
 		return "with " + name + of + shown(lo) + unit, ""
 	}
 	return "with " + name + of + "up to " + shown(hi) + unit, ""
+}
+
+func countOf(list, n string) string {
+	one, plain := strings.TrimSuffix(list, "s"), !strings.ContainsAny(list, ".[")
+	switch {
+	case plain && one != list && n == "1":
+		return "1 " + one
+	case plain && one != list:
+		return n + " " + list
+	case n == "1":
+		return list + " of 1 item"
+	}
+	return list + " of " + n + " items"
 }
 
 func plural(n int, word string) string {

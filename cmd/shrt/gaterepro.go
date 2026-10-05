@@ -931,7 +931,7 @@ func triggerProbes(steps []*chain.Step, it gateItem, call rowCall, fails, passes
 			if _, ok := d["repeat "+name]; ok {
 				d["repeat "+name] = repeatedKey(l)
 			}
-			out = append(out, triggerProbe{label: "with " + name + " of " + plural(len(l), "item"), fail: x == 0, dims: d, changed: []string{steps[j].ID},
+			out = append(out, triggerProbe{label: "with " + countOf(name, strconv.Itoa(len(l))), fail: x == 0, dims: d, changed: []string{steps[j].ID},
 				steps: withStep(steps, j, func(s *chain.Step) { s.Body[key] = l })})
 		}
 	case "bytes":

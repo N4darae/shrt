@@ -3,7 +3,7 @@ $ shrt gate -repro  [exit 1]
 FAIL orders  order_1_2 (CreateOrder) order.total_minor want=750 got=500; suspect the write
 failures by suspect rpc:
   CreateOrder order.total_minor: 1 step in 1 chain, e.g. orders order_1_2
-    trigger: fails with lines of 2+ items (1 call); passes with lines of 1 item (1 call)
+    trigger: fails with 2+ lines (1 call); passes with 1 line (1 call)
     repro: shrt run .shrt/scratch/orders-slice-order_1_2.yaml (3 of 4 steps, reproduced 3/3)
 coverage: 11 rpcs without a contract: shrt contract init -all, then shrt contract plan -all -write
 masks: none (no chain has a safe spot)
@@ -20,14 +20,14 @@ coverage: 11 rpcs without a contract: shrt contract init -all, then shrt contrac
 masks: none (no chain has a safe spot)
 shrt gate: FAIL: 1 of 2 chains failed
 
-# with a second failing two-line order and a one-line order of qty 2, only lines of 2+ items together with a last qty above 1 split them
+# with a second failing two-line order and a one-line order of qty 2, only 2+ lines together with a last qty above 1 split them
 $ shrt gate -repro  [exit 1]
 PASS ends-in-one
 FAIL orders  order_1_2 (CreateOrder) order.total_minor want=750 got=500; suspect the write
 FAIL wide  order_2_3 (CreateOrder) order.total_minor want=1250 got=750; same fault as orders
 failures by suspect rpc:
   CreateOrder order.total_minor: 2 steps in 2 chains, e.g. wide order_2_3
-    trigger: fails with lines of 2+ items and lines[last].qty above 1 (2 calls); passes otherwise: lines of 1 item (2 calls), lines[last].qty 1 (1 call)
+    trigger: fails with 2+ lines and lines[last].qty above 1 (2 calls); passes otherwise: 1 line (2 calls), lines[last].qty 1 (1 call)
     repro: shrt run .shrt/scratch/wide-slice-order_2_3.yaml (3 of 4 steps, reproduced 3/3)
 coverage: 11 rpcs without a contract: shrt contract init -all, then shrt contract plan -all -write
 masks: none (no chain has a safe spot)

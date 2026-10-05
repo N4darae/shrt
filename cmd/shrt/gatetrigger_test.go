@@ -43,23 +43,23 @@ func TestATriggerLineContrastsTheFailingCallsWithThePassingOnes(t *testing.T) {
 		{"the auth profile", []map[string]string{clerk, clerk}, []map[string]string{admin, admin, admin},
 			"trigger: fails as clerk (2 calls); passes as default (3 calls)"},
 		{"a list's length", []map[string]string{lines(2, ""), lines(3, "")}, []map[string]string{lines(1, ""), lines(1, "")},
-			"trigger: fails with lines of 2+ items (2 calls: 2, 3); passes with lines of 1 item (2 calls)"},
+			"trigger: fails with 2+ lines (2 calls: 2, 3 lines); passes with 1 line (2 calls)"},
 		{"a list that repeats an item key", []map[string]string{lines(2, "id_product"), lines(3, "id_product")}, []map[string]string{lines(3, ""), lines(12, "")},
-			"trigger: fails when lines repeat id_product (2 calls; lines of 2 and 3 items); passes with distinct id_product (2 calls; lines of 3 and 12 items)"},
+			"trigger: fails when lines repeat id_product (2 calls; 2 and 3 lines); passes with distinct id_product (2 calls; 3 and 12 lines)"},
 		{"a repeat whose lengths also differ says the lengths, not a length trigger", []map[string]string{lines(2, "id_product")}, []map[string]string{lines(3, ""), lines(12, "")},
-			"trigger: fails when lines repeat id_product (1 call; lines of 2 items); passes with distinct id_product (2 calls; lines of 3 and 12 items)"},
+			"trigger: fails when lines repeat id_product (1 call; 2 lines); passes with distinct id_product (2 calls; 3 and 12 lines)"},
 		{"a repeat against one-item lists only is a length", []map[string]string{lines(2, "id_product")}, []map[string]string{lines(1, ""), lines(1, "")},
-			"trigger: fails with lines of 2+ items (1 call); passes with lines of 1 item (2 calls)"},
+			"trigger: fails with 2+ lines (1 call); passes with 1 line (2 calls)"},
 		{"a field present or absent", []map[string]string{admin}, []map[string]string{{"as": "default", "set sku_prefix": "set"}, {"as": "clerk", "set sku_prefix": "set"}},
 			"trigger: fails with sku_prefix empty or absent (1 call); passes with sku_prefix set (2 calls)"},
 		{"two dimensions that both separate are both said", []map[string]string{{"as": "clerk", "len lines": "2"}}, []map[string]string{{"as": "default", "len lines": "1"}},
-			"trigger: fails as clerk with lines of 2+ items (1 call); passes as default with lines of 1 item (1 call)"},
+			"trigger: fails as clerk with 2+ lines (1 call); passes as default with 1 line (1 call)"},
 		{"a passing call alike in every dimension", []map[string]string{lines(2, ""), lines(3, "")}, []map[string]string{lines(1, ""), lines(3, "")}, ""},
 		{"values on both sides", []map[string]string{clerk, {"as": "default", "set note": "set"}}, []map[string]string{admin}, ""},
 		{"lengths that interleave", []map[string]string{lines(1, ""), lines(3, "")}, []map[string]string{lines(2, "")}, ""},
 		{"one failing call and no passing call", []map[string]string{clerk}, nil, ""},
 		{"every call fails, over the profiles and list lengths they span", []map[string]string{lines(1, ""), lines(6, ""), {"as": "clerk", "len lines": "3", "len lines[first].tags": "2"}}, nil,
-			"trigger: fails on every call (3 of 3; as clerk and default, lines of 1 to 6 items)"},
+			"trigger: fails on every call (3 of 3; as clerk and default, 1 to 6 lines)"},
 		{"no failing call", nil, []map[string]string{admin}, ""},
 		{"a number above every passing one, the boundary pinned", []map[string]string{{"num lines[last].qty": "2"}, {"num lines[last].qty": "3"}},
 			[]map[string]string{{"num lines[last].qty": "1"}, {"num lines[last].qty": "1"}},
@@ -73,7 +73,7 @@ func TestATriggerLineContrastsTheFailingCallsWithThePassingOnes(t *testing.T) {
 		{"a value from one failing call is no threshold", []map[string]string{{"num qty": "5"}}, []map[string]string{{"num qty": "1"}, {"num qty": "2"}}, ""},
 		{"a value some call lacks is no threshold", []map[string]string{{"num qty": "5"}, {"num qty": "6"}}, []map[string]string{{"num qty": "1"}, {}}, ""},
 		{"two dimensions that split only together", order(fail(2, 1, 2), fail(3, 2, 4)), order(pass(1, 2, 2), pass(1, 1, 1), pass(2, 2, 1), pass(3, 2, 1)),
-			"trigger: fails with lines of 2+ items and lines[last].qty above 1 (2 calls); passes otherwise: lines of 1 item (2 calls), lines[last].qty 1 (2 calls)"},
+			"trigger: fails with 2+ lines and lines[last].qty above 1 (2 calls); passes otherwise: 1 line (2 calls), lines[last].qty 1 (2 calls)"},
 		{"two pairs that both split say nothing, though they split the same calls", order(fail(2, 2, 2), fail(3, 2, 4)), order(pass(1, 3, 3), pass(1, 1, 1), pass(2, 1, 1), pass(3, 1, 1)), ""},
 		{"the first and last item of one-item lists are one dimension", []map[string]string{one("default", 3), one("default", 4)}, []map[string]string{one("clerk", 1), one("default", 5)},
 			"trigger: fails as default and lines[first].qty up to 4 (2 calls); passes otherwise: as clerk (1 call), lines[first].qty above 4 (1 call)"},
@@ -247,7 +247,7 @@ func TestATriggerCountsOnlyTheCallsTheGateCheckedOnTheRowsField(t *testing.T) {
 					shopStep("get_two", shopGet, stock, "create_p1").holds("product.qty_on_hand", "8"),
 					batchStep("batch_unread", 2, "p1", "p1").holds("results.0.qty_on_hand", "10")),
 			},
-			"    trigger: fails when lines repeat id_product (1 call; lines of 2 items); passes with distinct id_product (1 call; lines of 2 items)\n"},
+			"    trigger: fails when lines repeat id_product (1 call; 2 lines); passes with distinct id_product (1 call; 2 lines)\n"},
 		{"a refusal only when FetchOrder itself is sent as clerk, on an admin's order, while an admin's fetch of a clerk's order passes",
 			[]*gateChain{
 				gateRun("fetch-clerk", []gateItem{{Step: "fetch_c", Call: shopFetch, Path: "status.code", Rule: "equals", Want: "SUCCESS", Got: "REJECTED", Failed: true,
@@ -304,7 +304,7 @@ func TestTheRowExampleShowsTheTriggerInAChainWithASafeSpot(t *testing.T) {
 	out := captureStdout(t, func() { groups = printGateGroups(nil, chains, false) })
 	for _, want := range []string{
 		"e.g. batches get_twice;",
-		"\n    trigger: fails when lines repeat id_product (3 calls; lines of 2 and 3 items); passes with distinct id_product (2 calls; lines of 2 and 12 items)\n",
+		"\n    trigger: fails when lines repeat id_product (3 calls; 2 and 3 lines); passes with distinct id_product (2 calls; 2 and 12 lines)\n",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("the example is the repeat that differs from a passing batch only in the repeat, in the chain with a safe spot, not the kept-red slice: want %q in\n%s", want, out)
@@ -398,12 +398,12 @@ func TestGoldenGateTrigger(t *testing.T) {
 		name, file, chain, trigger, example string
 	}{
 		{"CreateOrder prices the last line of a two-line order as qty 1: a one-line order passes, so the row says the trigger", "", "",
-			"fails with lines of 2+ items (1 call); passes with lines of 1 item (1 call)", "orders order_1_2"},
+			"fails with 2+ lines (1 call); passes with 1 line (1 call)", "orders order_1_2"},
 		{"a two-line order ending in qty 1 passes as well, so nothing separates one failing call from the passing ones and the row says no trigger",
 			"ends-in-one", orderChain("ends-in-one", []int{2, 1}), "", "orders order_1_2"},
-		{"with a second failing two-line order and a one-line order of qty 2, only lines of 2+ items together with a last qty above 1 split them", "wide",
+		{"with a second failing two-line order and a one-line order of qty 2, only 2+ lines together with a last qty above 1 split them", "wide",
 			orderChain("wide", []int{2, 3}, []int{2}),
-			"fails with lines of 2+ items and lines[last].qty above 1 (2 calls); passes otherwise: lines of 1 item (2 calls), lines[last].qty 1 (1 call)", "wide order_2_3"},
+			"fails with 2+ lines and lines[last].qty above 1 (2 calls); passes otherwise: 1 line (2 calls), lines[last].qty 1 (1 call)", "wide order_2_3"},
 	} {
 		if c.chain != "" {
 			writeFile(t, ".shrt/chains/"+c.file+".yaml", c.chain)

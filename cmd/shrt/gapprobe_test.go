@@ -67,7 +67,7 @@ func TestGateReproPlansEachGapIntoScratchAndRowsWhatFailsThere(t *testing.T) {
 	pending := "  CancelOrder on a PENDING order: no chain calls it so; its plan sends 1, 2 or 3 lines\n" +
 		"    CancelOrder status.code, order.status: 2 steps in 1 chain, e.g. orderservice-cancelorder-gaps cancel_order_3_lines_from_pending\n" +
 		"      status.code want=SUCCESS got=REJECTED\n" +
-		"    trigger: fails with lines of 3+ items (2 calls: 3, 4); passes with lines of up to 2 items (3 calls: 1, 2)\n" +
+		"    trigger: fails with 3+ lines (2 calls: 3, 4 lines); passes with up to 2 lines (3 calls: 1, 2 lines)\n" +
 		"    repro: shrt run .shrt/scratch/orderservice-cancelorder-gaps-slice-cancel_order_3_lines_from_pending.yaml (6 of 62 steps, reproduced 3/3)\n"
 	if code != 0 || !strings.Contains(out, "gaps: 3 states no chain calls a gated write from, 3 probed against the contract:\n") || !strings.Contains(out, pending) ||
 		!strings.Contains(out, "  CancelOrder on a CONFIRMED order: no chain sends 2 or 3 lines (cancel-confirmed sends 1)\n    passes: ") || strings.Count(out, "\n    passes: ") != 2 ||
@@ -90,8 +90,8 @@ func TestGateReproSaysTheCallAroundAGapsBoundaryContradictsItsSplit(t *testing.T
 	gapShop(t, func(state string, lines int) bool { return state == "PENDING" && lines == 3 })
 	out, _ := runGateOut(t, "-repro")
 	if !strings.Contains(out, "e.g. orderservice-cancelorder-gaps cancel_order_3_lines_from_pending\n      status.code want=SUCCESS got=REJECTED\n"+
-		"    trigger: none: sent again with lines of 4 items, the call passed\n    repro: ") || strings.Count(out, "trigger:") != 1 {
-		t.Fatalf("a 4-line PENDING cancel that passes contradicts lines of 3+ items, so the row says so in place of a trigger:\n%s", out)
+		"    trigger: none: sent again with 4 lines, the call passed\n    repro: ") || strings.Count(out, "trigger:") != 1 {
+		t.Fatalf("a 4-line PENDING cancel that passes contradicts 3+ lines, so the row says so in place of a trigger:\n%s", out)
 	}
 }
 
