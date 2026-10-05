@@ -46,6 +46,12 @@ type Plan struct {
 	unneeded map[*chain.Step]string
 }
 
+func newPlan(p *Plan) *Plan {
+	p.stepOf, p.reserved, p.preps, p.gaps = map[string]string{}, map[string]bool{}, map[string][]string{}, map[string]string{}
+	p.middles, p.unneeded, p.met = map[*chain.Step]string{}, map[*chain.Step]string{}, map[[2]string]bool{}
+	return p
+}
+
 type PlanOptions struct {
 	Auth        bool
 	Profiles    []string
@@ -115,7 +121,7 @@ func BuildPlanWith(targets []string, lib *Library, cat *catalog.Catalog, name st
 		}
 	}
 
-	p := &Plan{Target: strings.Join(nodes, ", "), Targets: nodes, Order: order, stepOf: map[string]string{}, cat: cat, opts: opts, lib: lib, met: map[[2]string]bool{}}
+	p := newPlan(&Plan{Target: strings.Join(nodes, ", "), Targets: nodes, Order: order, cat: cat, opts: opts, lib: lib})
 	c := &chain.Chain{
 		APIVersion:  chain.APIVersion,
 		Name:        name,
@@ -539,9 +545,6 @@ func (p *Plan) gap(format string, args ...any) {
 
 func (p *Plan) gapIn(note, gap string) {
 	p.note("%s", note)
-	if p.gaps == nil {
-		p.gaps = map[string]string{}
-	}
 	p.gaps[note] = gap
 }
 

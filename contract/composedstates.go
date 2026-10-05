@@ -134,9 +134,6 @@ func (p *Plan) startedCopy(lib *Library, act *chain.Step, e stateEntity, sk skip
 	id := p.freeStepID(act.ID + "_from_" + strings.ToLower(sk.state))
 	fixture, again := p.actOnFixture(lib, act, e, id, fmt.Sprintf("left %s for %s to act on", sk.state, id))
 	again.Description = fmt.Sprintf("as %s, on %s still %s: %s.", act.ID, withArticle(e.carrier), sk.state, sk.why())
-	if p.unneeded == nil {
-		p.unneeded = map[*chain.Step]string{}
-	}
 	p.unneeded[again] = sk.need
 	return fixture, again
 }

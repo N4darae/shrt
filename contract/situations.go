@@ -34,7 +34,7 @@ func Situations(c *chain.Chain, lib *Library, cat *catalog.Catalog) map[string]S
 	if c == nil || lib == nil {
 		return out
 	}
-	p := &Plan{cat: cat, lib: lib, Chain: c}
+	p := newPlan(&Plan{cat: cat, lib: lib, Chain: c})
 	states := map[string]string{}
 	for _, st := range c.Steps {
 		if st == nil {

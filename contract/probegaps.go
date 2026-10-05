@@ -41,7 +41,7 @@ func AuthProbeGaps(chains []*chain.Chain, lib *Library, cat *catalog.Catalog, op
 			}
 		}
 	}
-	p := &Plan{cat: cat, opts: opts}
+	p := newPlan(&Plan{cat: cat, opts: opts})
 	out := []ProbeGap{}
 	for _, m := range cat.Methods() {
 		if m.StreamRefusal() != "" || p.isLogin(m.FullName) || !called[m.FullName] {
