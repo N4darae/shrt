@@ -134,16 +134,8 @@ func (es Effects) increases() bool {
 	return es.any(func(e *Effect) bool { return e.Increase != "" && e.Of == "" })
 }
 
-func (es Effects) perItem() bool {
-	return es.any(func(e *Effect) bool { return e.Is == EffectPerItem })
-}
-
 func (es Effects) restores(state string) bool {
 	return es.any(func(e *Effect) bool { return e.Restore != "" && SameState(e.Restore, state) })
-}
-
-func (es Effects) restoresAny() bool {
-	return es.any(func(e *Effect) bool { return e.Restore != "" })
 }
 
 func SameState(a, b string) bool {

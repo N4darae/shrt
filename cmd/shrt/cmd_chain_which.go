@@ -301,7 +301,7 @@ func printWhich(hits []chain.WhichChain, q chain.WhichQuery, target string, verb
 				fmt.Printf("    called %s\n", sit)
 			}
 			if m.ByReason != "" {
-				fmt.Printf("    %s\n", byReasonNote(m, q))
+				fmt.Printf("    matched by reason %s only: the step asserts no code, so it may expect a code other than %s that has the same reason\n", m.ByReason, q.Code)
 			}
 			if m.Observed == nil {
 				if m.Newest != nil {
@@ -345,10 +345,6 @@ func printWhich(hits []chain.WhichChain, q chain.WhichQuery, target string, verb
 		"on, as the fallback; otherwise -keep writes is the reproduce: line. A step marked auth probe (skip_auth, auth: invalid, or a\n" +
 		"transport refusal such as unauthenticated) is refused before it writes anything, so it is sliced plainly: earlier\n" +
 		"writes do not change its verdict, and -keep writes would only add steps.")
-}
-
-func byReasonNote(m chain.WhichStep, q chain.WhichQuery) string {
-	return fmt.Sprintf("matched by reason %s only: the step asserts no code, so it may expect a code other than %s that has the same reason", m.ByReason, q.Code)
 }
 
 func whyNewestUnreached(n *chain.WhichNewest) string {

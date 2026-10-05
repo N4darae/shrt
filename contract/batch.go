@@ -31,7 +31,7 @@ func (p *Plan) perItemResults(lib *Library, rpc string, c *RPCContract, m *catal
 	if results == nil || !results.Repeated || results.Kind != "message" {
 		return nil, "", ""
 	}
-	if c.Effects.perItem() || perItemFailure().MatchString(c.Summary) || slices.ContainsFunc(lib.AllFailures(rpc), func(f Failure) bool { return perItemFailure().MatchString(f.When) }) {
+	if c.Effects.any(func(e *Effect) bool { return e.Is == EffectPerItem }) || perItemFailure().MatchString(c.Summary) || slices.ContainsFunc(lib.AllFailures(rpc), func(f Failure) bool { return perItemFailure().MatchString(f.When) }) {
 		return results, listPath, verdict
 	}
 	return nil, "", ""
