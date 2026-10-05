@@ -43,7 +43,7 @@ The end of a `FAIL` line:
 - `failures by suspect rpc:`: one row per suspect rpc and field, with an example step. The answer.
 Each row holds its own lines: the counter move, `settled ...`, `trigger:` and `repro:`.
 
-- `trigger:`: what the failing calls' requests have that the passing calls' lack. Take it as the pattern. Where it rested on few calls, `-repro` has already sent the contrasting calls and the line shows the result.
+- `trigger:`: what the failing calls' requests have that the passing calls' lack. Take it as the pattern. Where it rested on few calls, `-repro` has already sent the contrasting calls; the line shows the result and ends `[firmed by -repro]`.
 - No `trigger:` line: nothing in the requests splits them. Probe from the example step.
 - `trigger: none: sent again ...`: a contrasting call contradicted the split. There is no trigger.
 - A counter's move ending in a ratio such as `2x`: how far a suspect write moved it, against the approved run.

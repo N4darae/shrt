@@ -48,8 +48,8 @@ func TestGateReproSendsAnEchoedFieldAtTheBoundaryItsCutImplies(t *testing.T) {
 		want  string
 	}{
 		{"a cut past 20 bytes: 20 bytes pass and 21 fail", steps, 20,
-			"    trigger: fails with sku longer than 20 bytes (3 calls); passes with sku of up to 20 bytes (3 calls); got keeps the first 20 bytes of the sku sent (3 calls)\n    repro: "},
-		{"a cut past 25 bytes: 21 bytes pass, against the split", steps, 25, "    trigger: none: sent again with sku of 21 bytes, the call passed\n    repro: "},
+			"    trigger: fails with sku longer than 20 bytes (3 calls); passes with sku of up to 20 bytes (3 calls);\n      got keeps the first 20 bytes of the sku sent (3 calls) [firmed by -repro]\n    repro: "},
+		{"a cut past 25 bytes: 21 bytes pass, against the split", steps, 25, "    trigger: none: sent again with sku of 21 bytes, the call passed [firmed by -repro]\n    repro: "},
 		{"the calls already pin 20 and 21 bytes, so nothing is sent", steps + product("twenty", "sku-${vars.tag}-abcdef") + product("twenty_one", "sku-${vars.tag}-abcdefg"), 20,
 			"    trigger: fails with sku longer than 20 bytes (3 calls); passes with sku of up to 20 bytes (3 calls); got keeps the first 20 bytes of the sku sent (3 calls)\n    repro: "},
 	} {
@@ -83,9 +83,9 @@ func TestGateReproSendsAFieldEmptyTheOtherWayAndAWidePrefix(t *testing.T) {
 		probes  int
 	}{
 		{"an empty or absent prefix lists nothing, a one-byte prefix lists every product", steps, empty,
-			"    trigger: fails with sku_prefix empty or absent (2 calls); passes with sku_prefix set (3 calls)\n    repro: ", 2},
+			"    trigger: fails with sku_prefix empty or absent (2 calls); passes with sku_prefix set (3 calls) [firmed by -repro]\n    repro: ", 2},
 		{"more than one match lists nothing, so the wide prefix fails too", steps, func(_ any, n int) bool { return n > 1 },
-			"    trigger: none: sent again with sku_prefix \"s\", the call failed\n    repro: ", 2},
+			"    trigger: none: sent again with sku_prefix \"s\", the call failed [firmed by -repro]\n    repro: ", 2},
 		{"two calls on each side already, so nothing is sent", steps + list("list_none", `""`, includes), empty, "    repro: ", 0},
 	} {
 		shop := newFakeShop()
@@ -109,7 +109,7 @@ func TestGateReproSendsAFieldEmptyTheOtherWayAndAWidePrefix(t *testing.T) {
 		shop.refuseProduct = func(body map[string]any) bool { return body["name"] == nil || body["name"] == "" }
 	})
 	if strings.Contains(out, "    trigger: fails with name empty or absent (1 call); passes with name set (2 calls)\n") ||
-		!strings.Contains(reproBlock(out), "\n    trigger: fails with name empty or absent (2 calls); passes with name set (2 calls)\n") {
+		!strings.Contains(reproBlock(out), "\n    trigger: fails with name empty or absent (2 calls); passes with name set (2 calls) [firmed by -repro]\n") {
 		t.Errorf("the call sent again without its name copies its price, so the price does not split the calls too:\n%s", out)
 	}
 }
@@ -124,10 +124,10 @@ func TestGateReproSendsAnUnknownIDReadWithAnotherIDOfItsShape(t *testing.T) {
 		want string
 	}{
 		{"every unknown id answers SUCCESS", func(*fakeShop) func(string) bool { return func(string) bool { return true } },
-			`    trigger: fails for every unknown id_product sent \(2 calls: prd-\d{4}-unknown, prd-\d{4}-unknown\)\n    repro: `},
+			`    trigger: fails for every unknown id_product sent \(2 calls: prd-\d{4}-unknown, prd-\d{4}-unknown\) \[firmed by -repro\]\n    repro: `},
 		{"only a real id with -unknown appended answers SUCCESS", func(s *fakeShop) func(string) bool {
 			return func(id string) bool { return s.products[strings.TrimSuffix(id, "-unknown")] != nil }
-		}, `    trigger: fails for the unknown id_product sent \(1 call: prd-\d{4}-unknown\), not for another of its shape no record has \(1 call: prd-\d{4}-unknown\)\n    repro: `},
+		}, `    trigger: fails for the unknown id_product sent \(1 call: prd-\d{4}-unknown\), not for another of its shape no record has \(1 call: prd-\d{4}-unknown\) \[firmed by -repro\]\n    repro: `},
 	} {
 		shop := newFakeShop()
 		out := firmGate(t, shop, steps, func() { shop.unknownOK = c.ok(shop) })
@@ -180,9 +180,9 @@ func TestGateReproSendsAProfilesCallOnARecordItCreatedItself(t *testing.T) {
 		want   string
 	}{
 		{"a clerk is refused every thing", func(caller, _ string) bool { return caller == "clerk" },
-			"    trigger: fails when Fetch is sent as clerk (2 calls; 1 on records created as default); passes as default (2 calls)\n    repro: "},
+			"    trigger: fails when Fetch is sent as clerk (2 calls; 1 on records created as default, 1 on records created as clerk);\n      passes as default (2 calls) [firmed by -repro]\n    repro: "},
 		{"a clerk is refused only what another profile created", func(caller, owner string) bool { return caller == "clerk" && owner != "clerk" },
-			"    trigger: none: sent again as clerk on what clerk created, the call passed\n    repro: "},
+			"    trigger: none: sent again as clerk on what clerk created, the call passed [firmed by -repro]\n    repro: "},
 	} {
 		shop := &thingShop{owner: map[string]string{}, refuse: c.refuse}
 		srv := shop.server()

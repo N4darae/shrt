@@ -2028,18 +2028,47 @@ func (gr *gateGroup) lines(verbose bool, rep *reproOut) string {
 	}
 	out := []string{rowLine("  ", head, n, len(gr.chains), gr.in+" "+it.Step, parts...)}
 	trigger, rr := gr.trigger, rep.row(gr)
-	if rr != nil {
+	if rr != nil && rr.trigger != trigger {
 		trigger = rr.trigger
+		if trigger != "" {
+			trigger += " [firmed by -repro]"
+		}
 	}
-	if trigger != "" {
-		out = append(out, "    "+capText(trigger, lineMax-4))
-	}
+	lines := []string{trigger}
 	if rr != nil {
-		for _, l := range append(rr.settles, rr.repro) {
-			out = append(out, "    "+capText(l, lineMax-4))
+		lines = append(lines, append(rr.settles, rr.repro)...)
+	}
+	for _, l := range lines {
+		if l != "" {
+			out = append(out, wrapTop("    ", l)...)
 		}
 	}
 	return strings.Join(out, "\n")
+}
+
+func wrapTop(indent, s string) []string {
+	out := []string{}
+	for len(indent)+len(s) > lineMax {
+		cut, depth := -1, 0
+		for i := 0; i+1 < len(s) && len(indent)+i <= lineMax; i++ {
+			switch s[i] {
+			case '(':
+				depth++
+			case ')':
+				depth--
+			case ';':
+				if depth == 0 && s[i+1] == ' ' {
+					cut = i
+				}
+			}
+		}
+		if cut < 0 {
+			break
+		}
+		out = append(out, indent+s[:cut+1])
+		s, indent = s[cut+2:], indent+"  "
+	}
+	return append(out, indent+s)
 }
 
 var servicePrefix = regexp.MustCompile(`[\w.]+/`)
