@@ -176,6 +176,10 @@ func writeGateSidecar(sidecar func() gateSidecar, err error) {
 	if err != nil {
 		side.Error, _, _ = strings.Cut(err.Error(), "\n")
 	}
+	var refusal *runner.Refusal
+	if errors.As(err, &refusal) {
+		side.Error = "chain " + refusal.Chain + ": nothing was sent: " + strings.Join(refusal.Lines(), "; ")
+	}
 	if raw, err := json.Marshal(side); err == nil {
 		_ = os.WriteFile(path, raw, 0o600)
 	}

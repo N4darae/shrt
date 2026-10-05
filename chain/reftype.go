@@ -103,18 +103,14 @@ func refTypeProblems(s *Step, m *catalog.Method, responses map[string]*catalog.M
 			if collection {
 				sourceKind = collectionKind(src)
 			}
-			never = append(never, fmt.Sprintf("${%s} fills %s, declared %s, from %s, declared %s — a list or map "+
-				"cannot be sent as a single value, nor a single value as a list or map, so the request would be "+
-				"rejected after every earlier step had already hit the backend, and shrt run refuses the chain "+
-				"before sending anything", refs[0], path, targetKind, where, sourceKind))
+			never = append(never, fmt.Sprintf("${%s} fills %s, declared %s, from %s, declared %s: a list or map and "+
+				"a single value do not convert", refs[0], path, targetKind, where, sourceKind))
 			return
 		}
 		if !IsNumericKind(target.Kind) {
 			if !isMessage(target) && isMessage(src) && !dynamicWellKnown[src.Message] && !scalarWellKnown[src.Message] {
-				never = append(never, fmt.Sprintf("${%s} fills %s, declared %s, from %s, declared %s — a whole "+
-					"message is sent as a JSON object, which a %s field never accepts, so the request would be rejected "+
-					"after every earlier step had already hit the backend, and shrt run refuses the chain before "+
-					"sending anything. Reference or export one scalar field of it instead", refs[0], path,
+				never = append(never, fmt.Sprintf("${%s} fills %s, declared %s, from %s, declared %s: a %s field takes "+
+					"no object; reference one scalar field of it", refs[0], path,
 					target.Kind, where, cmp.Or(src.Message, "message"), target.Kind))
 			}
 			return
@@ -122,14 +118,11 @@ func refTypeProblems(s *Step, m *catalog.Method, responses map[string]*catalog.M
 		kind, isNever, isMaybe := cannotBeNumber(src)
 		switch {
 		case isNever:
-			never = append(never, fmt.Sprintf("${%s} fills %s, declared %s, from %s, declared %s — no value of that "+
-				"type can be sent as %s, so the request would be rejected after every earlier step had already hit "+
-				"the backend, and shrt run refuses the chain before sending anything", refs[0], path, target.Kind,
-				where, kind, target.Kind))
+			never = append(never, fmt.Sprintf("${%s} fills %s, declared %s, from %s, declared %s, which never "+
+				"converts to %s", refs[0], path, target.Kind, where, kind, target.Kind))
 		case isMaybe:
-			maybe = append(maybe, fmt.Sprintf("${%s} fills %s, declared %s, from %s, declared %s — the request is "+
-				"valid only if that string holds digits, such as \"5\"; any other text is rejected when the step is "+
-				"sent. Check that the source really carries a number", refs[0], path, target.Kind, where, kind))
+			maybe = append(maybe, fmt.Sprintf("${%s} fills %s, declared %s, from %s, declared %s: valid only if it "+
+				"holds digits, such as \"5\"", refs[0], path, target.Kind, where, kind))
 		}
 	})
 	for _, name := range SortedKeys(s.Headers) {
@@ -139,16 +132,15 @@ func refTypeProblems(s *Step, m *catalog.Method, responses map[string]*catalog.M
 }
 
 func structureProblems(how, value string, refs []string, header bool, responses map[string]*catalog.Method, exports map[string]exportOrigin) []string {
-	carries, fix := "", "Interpolate"
+	carries, fix := "", "interpolate"
 	if header {
-		carries, fix = "a header carries text only, and ", "Reference"
+		carries, fix = "a header carries text only, and ", "reference"
 	}
 	out := []string{}
 	for _, ref := range refs {
 		if kind, where, ok := structureOf(ref, responses, exports); ok {
-			out = append(out, fmt.Sprintf("${%s} %s (%q), from %s, declared %s — %sa message, list or map has no text form, "+
-				"so it would be sent as Go syntax (map[...] or [...]) instead of anything the backend reads, and shrt run "+
-				"refuses the chain before sending anything. %s one scalar field of it instead", ref, how, value, where, kind, carries, fix))
+			out = append(out, fmt.Sprintf("${%s} %s (%q), from %s, declared %s: %sa message, list or map has no text form; "+
+				"%s one scalar field of it", ref, how, value, where, kind, carries, fix))
 		}
 	}
 	return out

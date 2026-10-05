@@ -85,11 +85,12 @@ func TestChainLintJudgesTheAuthAndTheWarningsOfEachChain(t *testing.T) {
 				cliUnsetEnv(t, "WIDGET_USER", "WIDGET_PASSWORD")
 				writeFile(t, ".shrt/chains/cli-thing-again.yaml", strings.Replace(string(mustRead(t, cliFlow)), "name: cli-thing-flow", "name: cli-thing-again", 1))
 			}},
-		{name: "unasserted timestamps in two chains", want: []string{"WARN   timestamps unasserted in 2 chain(s), created_at (", "verify masks timestamps", "\n2 chain(s): 2 with warnings\n"},
+		{name: "unasserted timestamps in two chains", want: []string{"WARN  timestamps unasserted in 2 chain(s), created_at (", "\n2 chain(s): 2 with warnings\n"},
+			not: []string{"verify masks timestamps"},
 			setup: func(t *testing.T) {
 				writeFile(t, ".shrt/chains/cli-thing-copy.yaml", strings.Replace(string(mustRead(t, cliFlow)), "name: cli-thing-flow", "name: cli-thing-copy", 1))
 			}},
-		{name: "unasserted timestamps with -v", args: []string{"-v"}, want: []string{"[fetch] timestamp created_at unasserted; expect within:", "\nWARN   cli-thing-flow ["}},
+		{name: "unasserted timestamps with -v", args: []string{"-v"}, want: []string{"\nWARN  [fetch] timestamp created_at unasserted; expect within:", "verify masks timestamps"}},
 		{name: "an asserted timestamp", args: []string{"-v", "cli-thing-flow"}, want: []string{"ok   cli-thing-flow\n", "1 chain(s) lint clean\n"}, not: []string{"timestamp created_at unasserted"},
 			setup: func(t *testing.T) {
 				cliEdit(t, cliFlow, "            equals: widget\n", "            equals: widget\n          - path: created_at\n            lte: ${nowunix}\n")
@@ -104,12 +105,12 @@ func TestChainLintJudgesTheAuthAndTheWarningsOfEachChain(t *testing.T) {
 				writeFile(t, ".shrt/chains/broken.yaml", "apiVersion: shrt/v1\nname: broken\nsteps:\n  - id: fetch\n    call: shrt.test.v1.ThingService/NoSuchRpc\n    body: {id: x}\n")
 			}},
 		{name: "a step that asserts nothing", args: []string{"bare"},
-			want: []string{"exit 0, but 1 warning(s) above are errors under 'shrt chain lint -strict', which .shrt/ci-gate.sh runs\n"},
+			want: []string{"exit 0; 1 warning(s) above fail under -strict, which .shrt/ci-gate.sh runs\n"},
 			setup: func(t *testing.T) {
 				writeFile(t, ".shrt/chains/bare.yaml", "apiVersion: shrt/v1\nname: bare\nsteps:\n  - id: fetch\n    call: shrt.test.v1.ThingService/Fetch\n    body: {id: x}\n")
 			}},
 		{name: "a scratch chain outside the chains directory, which the gate never lints", args: []string{".shrt/scratch/bare.yaml"},
-			want: []string{"asserts nothing"}, not: []string{"ci-gate.sh", "exit 0, but"},
+			want: []string{"asserts nothing"}, not: []string{"ci-gate.sh", "exit 0;"},
 			setup: func(t *testing.T) {
 				writeFile(t, ".shrt/scratch/bare.yaml", "apiVersion: shrt/v1\nname: bare\nsteps:\n  - id: fetch\n    call: shrt.test.v1.ThingService/Fetch\n    body: {id: x}\n")
 			}},
@@ -128,7 +129,8 @@ func TestChainLintJudgesTheAuthAndTheWarningsOfEachChain(t *testing.T) {
 		{name: "-strict checks a repro as it checks the suite", args: []string{"-strict", ".shrt/scratch/repro.yaml", ".shrt/repro/make.yaml"}, failing: true,
 			want: []string{"timestamps unasserted in 1 chain(s), created_at", "[make] asserts only the verdict"}, setup: throwawayChains},
 		{name: "one warning on three steps", args: []string{"cli-probe"},
-			want: []string{"A step with no expect entry", "[fetch_2] asserts nothing at all, as above\n", "[fetch_3] asserts nothing at all, as above\n"},
+			want: []string{"WARN  [fetch_1] asserts nothing; add at least error.code equals: OK\n", "[fetch_2] asserts nothing, as above\n", "[fetch_3] asserts nothing, as above\n"},
+			not:  []string{"a step with no expect entry"},
 			setup: func(t *testing.T) {
 				steps := ""
 				for _, n := range []string{"1", "2", "3"} {

@@ -29,17 +29,14 @@ func LintChainBodies(c *chain.Chain, lib *Library, cat *catalog.Catalog) []chain
 		}
 		rc, ok := lib.Get(strings.TrimPrefix(m.Procedure(), "/"))
 		if unfilled := unfilledBodyValues(s, m, rc); len(unfilled) > 0 {
-			remedy := "answer the field's TODO in the contract to say the empty value is the point"
+			remedy := "answer the field's TODO in the contract"
 			if !ok {
-				remedy = "scaffold a contract for this rpc with 'shrt contract init', and say there that the " +
-					"empty value is the point"
+				remedy = "say so in a contract ('shrt contract init')"
 			}
-			add(s, chain.SeverityWarn, "sends an empty string or a placeholder enum for %s, and the contract does not say that is "+
-				"deliberate — a scaffolded or planned body carries those until someone fills the test data, "+
-				"so this step would exercise an empty request rather than the case you meant. Fill it, or %s. "+
-				"A numeric zero is NOT reported here: lint cannot tell the scaffold's filler from a deliberate "+
-				"0, which is what the plan header is for",
-				strings.Join(unfilled, ", "), remedy)
+			issues = append(issues, chain.Issue{Step: s.ID, Severity: chain.SeverityWarn, Message: fmt.Sprintf(
+				"sends an empty string or placeholder enum for %s; fill it, or if empty is the point, %s",
+				strings.Join(unfilled, ", "), remedy),
+				Why: "a scaffolded body carries those until the test data is filled; a numeric zero is not reported, the plan header is"})
 		}
 		if !ok {
 			continue
@@ -59,24 +56,20 @@ func LintChainBodies(c *chain.Chain, lib *Library, cat *catalog.Catalog) []chain
 			}
 			if v, ok := bodyValue(s.Body, name); ok {
 				if varName, empty := emptyDeclaredVar(c, v); empty {
-					add(s, chain.SeverityError, "%s is required by the contract for %s and this step sends ${vars.%s}, which vars: "+
-						"declares as empty, so a run without -var %s=... sends no value for it. Give the var "+
-						"a value under vars:, or remove it from vars: so shrt run refuses the chain until "+
-						"-var %s=... supplies one",
-						name, s.Call, varName, varName, varName)
+					add(s, chain.SeverityError, "%s is required by the contract, and ${vars.%s} is empty under vars:; "+
+						"give it a value, or drop it from vars: so run needs -var %s=...",
+						name, varName, varName)
 					continue
 				}
 			}
 			if HasUsableValue(s.Body, name, AuthoredBody) {
 				continue
 			}
-			add(s, chain.SeverityError, "%s is required by the contract for %s and this step sends no value for it. Lint reads "+
-				"this step as expecting success, because none of its expect entries states a refusal on "+
-				"%s (the envelope path) or on transport.code / transport.http_status; an assertion on "+
-				"another field, such as an app_code, does not make it a probe. Fill the field, or, if this "+
-				"step is meant to be refused for leaving it out, state that refusal: %s equals: <refusal "+
-				"code> (or not_equal: %s), or transport.code equals: <code>",
-				name, s.Call, chain.EnvelopePath(), chain.EnvelopePath(), chain.EnvelopeOK())
+			issues = append(issues, chain.Issue{Step: s.ID, Severity: chain.SeverityError, Message: fmt.Sprintf(
+				"%s is required by the contract and not sent; fill it, or assert the refusal on %s or transport.code",
+				name, chain.EnvelopePath()),
+				Why: fmt.Sprintf("a step is a probe only when an expect pins a refusal on %s or transport.code / "+
+					"transport.http_status; an app_code alone does not", chain.EnvelopePath())})
 		}
 	}
 	return issues
@@ -141,12 +134,11 @@ func AssertsOnlyVerdict(s *chain.Step) bool {
 	return stepExpectsSuccess(s)
 }
 
-const envelopeOnlyWhy = "The verdict says the call did not fail, not what it did: assert a field the contract declares, " +
-	"with the value the step should have produced (README rule 4); 'chain lint -strict' fails a step that does not"
+const envelopeOnlyWhy = "the verdict says the call did not fail, not what it did (README rule 4); 'chain lint -strict' fails such a step"
 
 func envelopeOnlyShort(rpc string, facts []string) string {
-	return fmt.Sprintf("asserts only the verdict, though the contract for %s declares what its response carries (%s)",
-		rpc, strings.Join(clipList(facts, 4), ", "))
+	return fmt.Sprintf("asserts only the verdict, though the contract for %s declares %s",
+		chain.RPCName(rpc), strings.Join(clipList(facts, 4), ", "))
 }
 
 func stepExpectsSuccess(s *chain.Step) bool {

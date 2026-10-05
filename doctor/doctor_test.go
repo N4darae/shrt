@@ -236,9 +236,9 @@ func TestAnUnsetAuthEnvVarWarnsAndNamesTheProfileItBelongsTo(t *testing.T) {
 		t.Errorf("a repo with six profiles needs to know WHICH one is unexported: %q", got.Detail)
 	}
 	if strings.Contains(got.Remedy, "FIRST STEP") || strings.Contains(got.Remedy, "steps before it are sent") ||
-		!strings.Contains(got.Remedy, "refuses the chain before sending anything") ||
+		!strings.Contains(got.Remedy, "before sending anything") ||
 		!strings.Contains(got.Remedy, "exits 1") || !strings.Contains(got.Remedy, "no run record") ||
-		!strings.Contains(got.Remedy, "whose login body reads ${env.NAME}, and env NAME is not set, so nothing was sent") {
+		!strings.Contains(got.Remedy, "${env.NAME}, and env NAME is not set") {
 		t.Errorf("the remedy has to say what shrt run really does: refuse up front with exit 1, sending "+
 			"nothing and recording nothing, quoting its refusal: %q", got.Remedy)
 	}

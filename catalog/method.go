@@ -82,8 +82,7 @@ func (m *Method) StreamRefusal() string {
 	if !m.ClientStreaming {
 		return ""
 	}
-	return fmt.Sprintf("%s is a %s rpc, and shrt sends one request per step: it calls unary and server-streaming "+
-		"rpcs only, so this rpc is out of scope for a chain — reproduce the state it observes with the rpcs that write it",
+	return fmt.Sprintf("%s is a %s rpc; a chain calls unary and server-streaming rpcs only, so reach its state with the rpcs that write it",
 		m.FullName, m.StreamKind())
 }
 

@@ -5,6 +5,7 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -91,9 +92,8 @@ func runRun(ctx context.Context, args []string) (err error) {
 	if err := refuseShadowingChainFile(e, rest[0], c); err != nil {
 		return err
 	}
-	if err := refuseUnreachableExpects(e, c, rest[0]); err != nil {
-		return err
-	}
+	defer func() { err = withLintWarnings(e, c, rest[0], err) }()
+	refuse := unreachableExpects(e, c)
 
 	supplied := c.CoerceVars(vars)
 	if err := checkUnusedVars(c, vars, supplied); err != nil {
@@ -104,7 +104,7 @@ func runRun(ctx context.Context, args []string) (err error) {
 			return fmt.Errorf("-repeat compares the verdicts of 2 or more real runs: give -repeat 2 or more, without -dry-run")
 		}
 		return runRepeated(ctx, e, c, *repeat, supplied, runner.Options{
-			Volatile: e.cfg.Volatile, Redact: e.cfg.Redact, KeepGoing: *keepGoing || !flagGiven(fs, "keep-going"), Build: *build,
+			Volatile: e.cfg.Volatile, Redact: e.cfg.Redact, KeepGoing: *keepGoing || !flagGiven(fs, "keep-going"), Build: *build, Refuse: refuse,
 		}, *save, *quiet, *asJSON)
 	}
 
@@ -123,7 +123,7 @@ func runRun(ctx context.Context, args []string) (err error) {
 		}
 	}
 	rec, err := executeChain(ctx, e, c, withLatency(runner.Options{
-		Vars: supplied, Volatile: e.cfg.Volatile, Redact: e.cfg.Redact, DryRun: *dry, KeepGoing: *keepGoing, Build: *build,
+		Vars: supplied, Volatile: e.cfg.Volatile, Redact: e.cfg.Redact, DryRun: *dry, KeepGoing: *keepGoing, Build: *build, Refuse: refuse,
 	}, latencyPolicy(e), latencySpot), *quiet || *asJSON, !*keepGoing || *verbose)
 	if err != nil {
 		return err
@@ -276,17 +276,42 @@ const runExitCodes = "\nexit codes:\n" +
 	"  1  failed: an expectation, a FINDING, kept_red not as pinned or gone, or refused before sending\n" +
 	"  3  no verdict: unreachable, answered unavailable, a restart mid-run, login or auth refused; re-run\n"
 
-func refuseUnreachableExpects(e *env, c *chain.Chain, ref string) error {
-	issues := chain.UnreachableExpectations(c, e.cat)
-	if len(issues) == 0 {
-		return nil
+func unreachableExpects(e *env, c *chain.Chain) []string {
+	at := map[string]int{}
+	for i, s := range c.Steps {
+		if s == nil {
+			continue
+		}
+		if _, seen := at[s.ID]; !seen {
+			at[s.ID] = i + 1
+		}
 	}
-	lines := make([]string, 0, len(issues))
-	for _, i := range issues {
-		lines = append(lines, "step "+i.Step+": "+i.Message)
+	out := []string{}
+	for _, i := range chain.UnreachableExpectations(c, e.cat) {
+		out = append(out, fmt.Sprintf("step %q (step %d): %s", i.Step, at[i.Step], i.Message))
 	}
-	return fmt.Errorf("chain error in %s, not a backend fault, so nothing was sent: %s\nshrt chain lint %s lists every lint error",
-		c.Name, strings.Join(lines, "\n"), ref)
+	return out
+}
+
+func withLintWarnings(e *env, c *chain.Chain, ref string, err error) error {
+	var refusal *runner.Refusal
+	if !errors.As(err, &refusal) {
+		return err
+	}
+	opts, lintErr := chainLintOptions(e, false)
+	if lintErr != nil {
+		return err
+	}
+	warned := 0
+	for _, i := range lintChainWith(e, c, opts) {
+		if i.Severity == chain.SeverityWarn && i.Kind != chain.KindUnsetInput {
+			warned++
+		}
+	}
+	if warned == 0 {
+		return err
+	}
+	return fmt.Errorf("%w\nchain lint has %s too: shrt chain lint %s", err, plural(warned, "warning"), ref)
 }
 
 func runVerdict(rec *runner.Record) error {

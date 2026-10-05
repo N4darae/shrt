@@ -355,10 +355,9 @@ func checkAuth(_ context.Context, cfg *config.Config, opts Options, r *Report) {
 	if len(unset) > 0 {
 		r.add(CheckAuth, LevelWarn,
 			fmt.Sprintf("unset in this shell: %s", strings.Join(unset, ", ")),
-			"'shrt run' of a chain with a step under one of these profiles refuses the chain before sending anything:\n"+
-				"it exits 1, writes no run record, and says 'step \"<id>\" (step N) runs under auth profile\n"+
-				"\"<profile>\", whose login body reads ${env.NAME}, and env NAME is not set, so nothing was sent'.\n"+
-				"That is a fixture problem, not a backend one. Export them before 'shrt run'.")
+			"'shrt run' refuses a chain with a step under one of these profiles before sending anything:\n"+
+				"it exits 1, writes no run record, and says '[<id>] auth profile \"<profile>\" logs in with\n"+
+				"${env.NAME}, and env NAME is not set'. Export them before 'shrt run'.")
 	}
 	handWritten := cfg.HandWrittenAuthHeaders()
 	if len(handWritten) > 0 {

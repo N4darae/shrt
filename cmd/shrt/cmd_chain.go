@@ -241,8 +241,8 @@ type lintReport struct {
 func chainLint(args []string) error {
 	fs := flag.NewFlagSet("chain lint", flag.ContinueOnError)
 	asJSON := fs.Bool("json", false, "emit JSON")
-	verbose := fs.Bool("v", false, "also print each clean chain, each chain's unasserted-timestamp warning under it, not one line for the whole lint, "+
-		"and each step's envelope-only warning, not one line per chain")
+	verbose := fs.Bool("v", false, "also print why each issue matters, each clean chain, each chain's unasserted-timestamp warning under it, "+
+		"not one line for the whole lint, and each step's envelope-only warning, not one line per chain")
 	strict := fs.Bool("strict", false, "treat the assertion-quality warnings as errors: an assertion that cannot fail (unfailable-assertion), "+
 		"a step asserting nothing (asserts-nothing), an allow_fail that does nothing (inert-allow-fail), an export a later step "+
 		"silently overwrites (export-overwritten), arithmetic such as ${a.qty}+${b.qty} in an equals on a numeric field, compared "+
@@ -277,19 +277,10 @@ func chainLint(args []string) error {
 			{Severity: chain.SeverityError, Message: b.Error()},
 		}})
 	}
-	lib, err := e.library()
+	opts, err := chainLintOptions(e, *strict)
 	if err != nil {
 		return err
 	}
-	opts := contract.ChainLintOptions{Strict: *strict, Library: lib}
-	opts.Chain.Env = os.LookupEnv
-	opts.Chain.Redact = append([]string{}, e.cfg.Redact...)
-	opts.Chain.Hints = true
-	if covers, err := runner.AuthCoverage(e.cfg, e.cat); err == nil {
-		opts.Chain.AuthHeader = covers
-		opts.Chain.AuthEnv = runner.AuthEnv(e.cfg)
-	}
-	opts.Chain.AuthProfiles = append([]string{}, e.cfg.AuthProfileNames()...)
 	if authIssues := lintAuthBodies(e.cfg); len(authIssues) > 0 {
 		errCount += len(authIssues)
 		reports = append(reports, lintReport{Chain: "<config>", Issues: authIssues})
@@ -307,12 +298,9 @@ func chainLint(args []string) error {
 				shellUnset[g.Profile] = g.Unset
 			}
 		}
-		throwaway := !*strict && !inChainsDir(e, c)
-		issues := slices.DeleteFunc(contract.LintChain(c, e.cat, opts), func(i chain.Issue) bool {
-			return i.Kind == chain.KindAuthEnvUnset || throwaway && (i.Kind == chain.KindUnassertedTimestamp || i.Kind == chain.KindEnvelopeOnly)
-		})
+		issues := lintChainWith(e, c, opts)
 		if mm := nameMismatchIn(e, c); mm != nil {
-			issues = append([]chain.Issue{{Severity: chain.SeverityWarn, Kind: chain.KindNameMismatch, Message: mm.Error() + ": " + mm.Remedy()}}, issues...)
+			issues = append([]chain.Issue{{Severity: chain.SeverityWarn, Kind: chain.KindNameMismatch, Message: mm.Lead() + "; " + mm.Remedy(), Why: mm.Error()}}, issues...)
 		}
 		for _, i := range issues {
 			if i.Severity == chain.SeverityError {
@@ -327,8 +315,7 @@ func chainLint(args []string) error {
 			named = append(named, fmt.Sprintf("%s (auth profile %q)", strings.Join(shellUnset[p], ", "), p))
 		}
 		reports = append([]lintReport{{Chain: "<shell>", Issues: []chain.Issue{{Severity: chain.SeverityWarn, Kind: chain.KindAuthEnvUnset, Message: fmt.Sprintf(
-			"login bodies read environment variables not exported in this shell: %s — shrt run refuses "+
-				"the %d chain(s) that use them before sending anything until they are set",
+			"login env not exported in this shell: %s; run refuses the %d chain(s) using them until set",
 			strings.Join(named, "; "), shellChains)}}}}, reports...)
 	}
 	if *asJSON {
@@ -366,21 +353,21 @@ func chainLint(args []string) error {
 			for _, i := range shown {
 				where := ""
 				if i.Step != "" {
-					where = " [" + i.Step + "]"
+					where = "[" + i.Step + "] "
 				}
 				if i.Step != "" && said[i.Severity+" "+i.Message] {
-					fmt.Printf("%-5s  %s%s %s, as above\n", strings.ToUpper(i.Severity), r.Chain, where, lintLead(i.Message))
+					fmt.Printf("%-5s %s%s, as above\n", strings.ToUpper(i.Severity), where, lintLead(i.Message))
 					continue
 				}
 				said[i.Severity+" "+i.Message] = true
-				fmt.Printf("%-5s  %s%s %s\n", strings.ToUpper(i.Severity), r.Chain, where, i.Message)
-				if i.Why != "" && !explained[i.Why] {
+				fmt.Printf("%-5s %s%s\n", strings.ToUpper(i.Severity), where, i.Message)
+				if *verbose && i.Why != "" && !explained[i.Why] {
 					explained[i.Why] = true
-					fmt.Printf("       %s\n", i.Why)
+					fmt.Printf("      %s\n", i.Why)
 				}
 			}
 		}
-		stamps.print(explained)
+		stamps.print(explained, *verbose)
 		fmt.Println(lintTally(reports))
 	}
 	if errCount > 0 {
@@ -403,10 +390,34 @@ func chainLint(args []string) error {
 			}
 		}
 		if quality > 0 {
-			fmt.Printf("\nexit 0, but %d warning(s) above are errors under 'shrt chain lint -strict', which .shrt/ci-gate.sh runs\n", quality)
+			fmt.Printf("\nexit 0; %d warning(s) above fail under -strict, which .shrt/ci-gate.sh runs\n", quality)
 		}
 	}
 	return nil
+}
+
+func chainLintOptions(e *env, strict bool) (contract.ChainLintOptions, error) {
+	lib, err := e.library()
+	if err != nil {
+		return contract.ChainLintOptions{}, err
+	}
+	opts := contract.ChainLintOptions{Strict: strict, Library: lib}
+	opts.Chain.Env = os.LookupEnv
+	opts.Chain.Redact = append([]string{}, e.cfg.Redact...)
+	opts.Chain.Hints = true
+	if covers, err := runner.AuthCoverage(e.cfg, e.cat); err == nil {
+		opts.Chain.AuthHeader = covers
+		opts.Chain.AuthEnv = runner.AuthEnv(e.cfg)
+	}
+	opts.Chain.AuthProfiles = append([]string{}, e.cfg.AuthProfileNames()...)
+	return opts, nil
+}
+
+func lintChainWith(e *env, c *chain.Chain, opts contract.ChainLintOptions) []chain.Issue {
+	throwaway := !opts.Strict && !inChainsDir(e, c)
+	return slices.DeleteFunc(contract.LintChain(c, e.cat, opts), func(i chain.Issue) bool {
+		return i.Kind == chain.KindAuthEnvUnset || throwaway && (i.Kind == chain.KindUnassertedTimestamp || i.Kind == chain.KindEnvelopeOnly)
+	})
 }
 
 func lintTally(reports []lintReport) string {
@@ -462,16 +473,16 @@ func (s *stampSummary) add(chainName string, i chain.Issue) bool {
 	return true
 }
 
-func (s *stampSummary) print(explained map[string]bool) {
+func (s *stampSummary) print(explained map[string]bool, verbose bool) {
 	if len(s.paths) == 0 {
 		return
 	}
 	why := ""
-	if s.why != "" && !explained[s.why] {
+	if verbose && s.why != "" && !explained[s.why] {
 		explained[s.why] = true
 		why = ": " + s.why
 	}
-	fmt.Printf("WARN   timestamps unasserted in %d chain(s), %s ('chain lint -v' names each step and its expect)%s\n",
+	fmt.Printf("WARN  timestamps unasserted in %d chain(s), %s ('chain lint -v' names each step and its expect)%s\n",
 		len(s.chains), chain.ListSome(s.paths, 4), why)
 }
 
@@ -511,7 +522,7 @@ func lintAuthBodies(cfg *config.Config) []chain.Issue {
 		}
 		for _, problem := range chain.AuthBodyReferenceProblems(p.Body) {
 			issues = append(issues, chain.Issue{Severity: chain.SeverityError, Message: fmt.Sprintf(
-				"auth profile %q body: %s, so every run that needs this profile dies at its first step", name, problem)})
+				"auth profile %q body: %s", name, problem)})
 		}
 	}
 	return issues

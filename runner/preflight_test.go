@@ -84,9 +84,15 @@ func TestARunIsRefusedBeforeAnythingIsSent(t *testing.T) {
 		{name: "a step named by one word of the reference", chain: func() *chain.Chain {
 			return flow(step("customer", "ThingService/Create", thing("widget"), okExpect()...),
 				step("fetch", "ThingService/Create", map[string]any{"name": "${create_customer.id}", "kind": "KIND_A", "meta": map[string]any{"trace_id": "${create_customer.id}"}}, okExpect()...))
-		}, want: []string{`did you mean "customer"?`}, once: `"fetch" (step 2)`},
-		{name: "an unknown field in a later request", chain: createThen(step("create_bad", "ThingService/Create", map[string]any{"name": "widget", "kind": "KIND_A", "bogus": 1}, okExpect()...)), want: []string{sent, `"create_bad"`}},
-		{name: "an invalid enum in a later request", chain: createThen(step("create_bad", "ThingService/Create", map[string]any{"name": "widget", "kind": "KIND_NOPE"}, okExpect()...)), want: []string{sent, `"create_bad"`}},
+		}, want: []string{`did you mean "customer"?`}, once: "[fetch]"},
+		{name: "an unknown field in a later request", chain: createThen(step("create_bad", "ThingService/Create", map[string]any{"name": "widget", "kind": "KIND_A", "bogus": 1}, okExpect()...)), want: []string{sent, "[create_bad]"}},
+		{name: "an invalid enum in a later request", chain: createThen(step("create_bad", "ThingService/Create", map[string]any{"name": "widget", "kind": "KIND_NOPE"}, okExpect()...)), want: []string{sent, "[create_bad]"}},
+		{name: "every chain error at once", chain: func() *chain.Chain {
+			return flow(step("create", "ThingService/Create", map[string]any{"name": "${vars.batch}", "kind": "KIND_A"}, okExpect()...),
+				step("typo", "ThingService/Craete", map[string]any{"name": "widget"}, okExpect()...),
+				step("fetch", "ThingService/Fetch", byID("${craete.id}"), okExpect()...),
+				step("bad", "ThingService/Create", map[string]any{"name": "widget", "kind": "KIND_A", "bogus": 1}, okExpect()...))
+		}, dry: true, want: []string{sent, "4 chain errors", "-var batch=...", "[typo] unknown rpc", `[fetch] ${craete.id} names no step of this chain (did you mean "create"?)`, `[bad] request: "bogus"`}},
 		{name: "a hand-written authorization header", chain: handAuth(false, "authorization"), want: []string{sent, "uthorization"}},
 		{name: "a hand-written authorization header with skip_auth", chain: handAuth(true, "Authorization"), want: []string{sent, "uthorization"}},
 		{name: "an unresolvable header", chain: func() *chain.Chain {
@@ -110,14 +116,14 @@ func TestARunIsRefusedBeforeAnythingIsSent(t *testing.T) {
 			return flow(step("create", "ThingService/Create", map[string]any{"name": "${vars.base + 3}", "kind": "KIND_A"}))
 		}, opts: runner.Options{Vars: map[string]any{"base": 1}}, want: []string{chain.NoArithmetic}, not: "-var base + 3"},
 		{name: "a dry run expectation reading a field no response carries", chain: twoCreates(chain.Expectation{Path: "id", Equals: "${first.field_that_cannot_exist}"}),
-			opts: runner.Options{DryRun: true}, want: []string{sent, "field_that_cannot_exist", `step "second"`}},
+			opts: runner.Options{DryRun: true}, want: []string{sent, "field_that_cannot_exist", "[second]"}},
 		{name: "a dry run expectation reading an export alias as a field", chain: twoCreates(chain.Expectation{Path: "id", Equals: "${first.alias_only}"}),
 			opts: runner.Options{DryRun: true}, want: []string{"alias_only"}},
 		{name: "a dry run names each bad reference once", chain: func() *chain.Chain {
 			return flow(step("first", "ThingService/Create", thing("widget"), okExpect()...),
 				step("second", "ThingService/Fetch", byID("${first.idd}"), okExpect()...),
 				step("third", "ThingService/Fetch", byID("${first.idd}"), okExpect()...))
-		}, opts: runner.Options{DryRun: true}, want: []string{`step "second" (step 2), "third" (step 3): ${first.idd}`, `did you mean "id"?`}, once: "${first.idd}"},
+		}, opts: runner.Options{DryRun: true}, want: []string{"[second, third] ${first.idd}", `did you mean "id"?`}, once: "${first.idd}"},
 		{name: "auth: invalid with no auth configured", cfg: func(c *config.Config) { c.Auth = nil }, chain: func() *chain.Chain {
 			s := step("bad_token", "ThingService/Fetch", byID("thing-1"), unauthenticatedExpect()...)
 			s.Auth = transport.InvalidTokenProfile
@@ -131,12 +137,12 @@ func TestARunIsRefusedBeforeAnythingIsSent(t *testing.T) {
 		{name: "an export named like a step", shop: true, dry: true, chain: func() *chain.Chain {
 			return flow(&chain.Step{ID: "made", Call: "shop.catalog.v1.ProductService/CreateProduct", Body: map[string]any{"sku": "a"}, Export: map[string]string{"made": "product.id_product"}},
 				step("read", "shop.catalog.v1.ProductService/GetProduct", map[string]any{"id_product": "${made}"}))
-		}, want: []string{sent, `export "made" has the same name as step "made"`}},
+		}, want: []string{sent, `export "made" has the name of step "made"`}},
 		{name: "a var carrying a reference", shop: true, dry: true, chain: func() *chain.Chain {
 			c := flow(step("add", "shop.catalog.v1.StockService/AddStock", map[string]any{"id_product": "${vars.idem}", "qty": "1"}, chain.Expectation{Path: "status.code", Equals: "SUCCESS"}))
 			c.Vars = map[string]any{"idem": "idem-${vars.tag}"}
 			return c
-		}, want: []string{sent, `var "idem" carries ${vars.tag}`}},
+		}, want: []string{sent, `var "idem" holds ${vars.tag}`}},
 		{name: "a kept_red got on a redacted path", shop: true, chain: keptRedGot("5"), opts: runner.Options{Redact: []string{"**.qty_on_hand"}}, want: []string{sent, "redact", "qty_on_hand"}},
 		{name: "a kept_red got of <redacted>", shop: true, chain: keptRedGot("<redacted>"), opts: runner.Options{Redact: []string{"**.qty_on_hand"}}, want: []string{sent, "redact", "qty_on_hand"}},
 	} {

@@ -58,9 +58,10 @@ func routedProfile(router *transport.AuthRouter, cat *catalog.Catalog, s *chain.
 	return p, true
 }
 
-func (r *Runner) checkHandWrittenAuth(c *chain.Chain) error {
+func (r *Runner) handAuthProblems(c *chain.Chain) []string {
+	out := []string{}
 	if len(r.Auth) == 0 {
-		return nil
+		return out
 	}
 	headers := map[string]string{}
 	for _, b := range r.Auth {
@@ -74,9 +75,7 @@ func (r *Runner) checkHandWrittenAuth(c *chain.Chain) error {
 		}
 		if step.SkipAuth {
 			if name, ok := chain.HeaderNamed(step.Headers, "Authorization"); ok {
-				return fmt.Errorf("step %q (step %d) writes %q by hand with skip_auth, so nothing was sent: that pins one "+
-					"principal into one step with no refresh, and chain lint rejects it. Declare the principal as a "+
-					"profile in .shrt/config.yaml and name it with auth: <profile>", step.ID, i+1, name)
+				out = append(out, stepProblemf(step, i, "%s", chain.HandAuthSkipped(name)))
 			}
 			continue
 		}
@@ -88,14 +87,10 @@ func (r *Runner) checkHandWrittenAuth(c *chain.Chain) error {
 			continue
 		}
 		if name, ok := chain.HeaderNamed(step.Headers, headers[profile]); ok {
-			return fmt.Errorf("step %q (step %d) writes %q by hand, and auth profile %q covers this call, so nothing was "+
-				"sent: the auth middleware would overwrite the header with %q's token and the step would run as %q's "+
-				"principal while reading as another's, which chain lint rejects. To call as a different principal, "+
-				"declare it as a profile in .shrt/config.yaml and name it with auth: <profile>",
-				step.ID, i+1, name, profileLabel(profile), profile, profile)
+			out = append(out, stepProblemf(step, i, "%s", chain.HandAuthCovered(name, fmt.Sprintf("%q", profileLabel(profile)))))
 		}
 	}
-	return nil
+	return out
 }
 
 func routeOf(router *transport.AuthRouter, cat *catalog.Catalog) func(*chain.Step) (string, bool) {

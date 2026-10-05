@@ -264,10 +264,8 @@ func (c *Config) HandWrittenAuthHeaders() []string {
 }
 
 func HandWrittenAuthProblem(names []string) string {
-	return fmt.Sprintf("target.headers writes %s by hand while the config declares auth: it would be sent on every "+
-		"call no profile covers (a login, skip_auth, auth.skip_calls) while the run record says auth_profile none, "+
-		"and overwritten on every call a profile covers. Remove it from target.headers and let an auth profile "+
-		"carry the principal", strings.Join(names, ", "))
+	return fmt.Sprintf("target.headers writes %s by hand while auth is configured: sent where no profile covers, "+
+		"overwritten where one does; remove it and let an auth profile carry the principal", strings.Join(names, ", "))
 }
 
 func (c *Config) AuthProfileNames() []string {

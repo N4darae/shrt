@@ -23,9 +23,9 @@ func (c *Catalog) ValidateInput(m *Method, body []byte) error {
 	opts := protojson.UnmarshalOptions{Resolver: c.types, DiscardUnknown: false}
 	if err := opts.Unmarshal(body, msg); err != nil {
 		if hint := nameHint(md, body); hint != "" {
-			return fmt.Errorf("request does not match %s: %w\n       %s", md.FullName(), err, hint)
+			return fmt.Errorf("request: %s", hint)
 		}
-		return fmt.Errorf("request does not match %s: %w", md.FullName(), err)
+		return fmt.Errorf("request does not match %s: %w", md.Name(), err)
 	}
 	return nil
 }
@@ -46,7 +46,7 @@ func walkNames(md protoreflect.MessageDescriptor, v any, at string) string {
 	for _, k := range slices.Sorted(maps.Keys(obj)) {
 		fd := fieldByJSONKey(md, k)
 		if fd == nil {
-			return fmt.Sprintf("%q is not a field of %s; %s", at+k, md.FullName(), namesHint(k, descNames[protoreflect.FieldDescriptor](md.Fields()), "fields"))
+			return fmt.Sprintf("%q is not a field of %s; %s", at+k, md.Name(), namesHint(k, descNames[protoreflect.FieldDescriptor](md.Fields()), "fields"))
 		}
 		if hint := walkValue(fd, obj[k], at+k); hint != "" {
 			return hint
@@ -88,7 +88,7 @@ func walkSingle(fd protoreflect.FieldDescriptor, v any, at string) string {
 		if !unknown {
 			return ""
 		}
-		return fmt.Sprintf("%q is not a value of %s at %q; %s", text, fd.Enum().FullName(), at, namesHint(text, descNames[protoreflect.EnumValueDescriptor](fd.Enum().Values()), "values"))
+		return fmt.Sprintf("%q is not a value of %s at %q; %s", text, fd.Enum().Name(), at, namesHint(text, descNames[protoreflect.EnumValueDescriptor](fd.Enum().Values()), "values"))
 	}
 	return ""
 }

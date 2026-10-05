@@ -222,7 +222,7 @@ func TestTwoChainFilesClaimingOneNameAreRefused(t *testing.T) {
 		}
 	}
 	out := captureStdout(t, func() { _ = chainGroup.run(ctx, []string{"lint", "sw1"}) })
-	if strings.Contains(out, "verify the same chain") || !strings.Contains(out, "is another chain (name: sw1)") {
+	if strings.Contains(out, "verify the same chain") || !strings.Contains(out, "declares name: sw2, while sw2.yaml is chain sw1") {
 		t.Errorf("lint does not call two different chains one chain:\n%s", out)
 	}
 }
