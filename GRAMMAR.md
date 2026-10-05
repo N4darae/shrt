@@ -1,22 +1,21 @@
 # GRAMMAR — every key shrt accepts
 
-Generated from the Go structs by `go run ./distill`; do not edit. The loaders reject unknown keys,
-so a key not in this file does not exist: `unknown key "expects" at line 16 (did you mean "expect"?)`.
-A `+` in the `req` column means the key is always written out (no `omitempty`).
+Generated from the code by `go run ./distill`; do not edit. Loaders reject unknown keys, so a key
+not here does not exist. `+` in `req`: the key is always written out.
 
 ## 1. Chain file — `.shrt/chains/<name>.yaml`
 
 | key | type | req | meaning |
 |---|---|---|---|
 | `apiVersion` | string | + | `shrt/v1`. Defaults to it when omitted. |
-| `name` | string | + | Names the run directory and the safe spot. Defaults to the file name; a different name is a lint warning, and two files with one name are a lint error. |
+| `name` | string | + | Names the run directory and safe spot. Defaults to the file name; differing from it is a lint warning, sharing it a lint error. |
 | `description` | string |  | What state this chain reproduces, for the next reader. |
-| `vars` | map string → any |  | Referenced as `${vars.x}`; override per run with `-var x=y`. A var the chain reads without declaring must be given with `-var`, or `run` and `verify` refuse before sending; the exception is `tag`, which gets a fresh value each run, recorded in the run's `vars`. |
+| `vars` | map string → any |  | `${vars.x}`; override with `-var x=y`. An undeclared var must come from `-var`, except `tag`, which is fresh each run. |
 | `volatile` | list of string |  | Response paths `shrt verify` and `shrt diff` mask in every step. Expectations still see the real value. |
-| `unordered` | list of string |  | Response lists `shrt verify` compares as a multiset in every step, for an rpc that promises no order. Name the list without indices (`items`, `invoices.lines`). |
-| `redact` | list of string |  | Paths blanked in the run record (requests, responses, vars, exports, `want`/`got`) and so never compared by `verify`, added to the config's. Redact only what must not be stored. |
+| `unordered` | list of string |  | Response lists `verify` compares as multisets, for an rpc that promises no order. No indices: `invoices.lines`. |
+| `redact` | list of string |  | Paths blanked everywhere in the run record and never compared, added to the config's. Only what must not be stored. |
 | `steps` | list of step | + | Ordered; never reordered, parallelised or skipped. |
-| `kept_red` | list of pin |  | Pins a known defect the chain shows on purpose: the step and expectation path that fail, optionally the value got. `shrt run` goes past every failure and exits 0 only while the chain fails exactly as pinned; such a chain is never confirmed. |
+| `kept_red` | list of pin |  | A known defect the chain shows on purpose. `run` exits 0 only while it fails exactly as pinned; never confirmed. |
 
 ### Step
 
@@ -24,39 +23,37 @@ A `+` in the `req` column means the key is always written out (no `omitempty`).
 |---|---|---|---|
 | `id` | string | + | Unique; later steps reference it. Derived from the rpc name when omitted. |
 | `description` | string |  | Why this step is here and what its assertions mean. |
-| `call` | string | + | `package.Service/Rpc`, `Service/Rpc`, or a bare `Rpc` when unambiguous. A server-streaming rpc records its first message as `messages.0` (a `WatchInvoice` step asserts `messages.0.status.code`) and stops reading, within 5s; client- and bidi-streaming rpcs are refused. |
+| `call` | string | + | `package.Service/Rpc`, `Service/Rpc`, or a bare unambiguous `Rpc`. A server stream records its first message as `messages.0`, within 5s; client and bidi streams are refused. |
 | `body` | map string → any |  | The request, validated against the proto request message before anything is sent. |
-| `headers` | map string → string |  | Per-step headers. Never the auth header: use `auth: <profile>`; a hand-written `Authorization` is a lint error and `run` refuses it. |
-| `expect` | list of expectation |  | Assertions on this step's response. Each entry holds exactly one rule and nearly always a `path`. |
-| `export` | map string → string |  | `name: <path in the response>`, e.g. `id_invoice: invoice.id_invoice` (no `response.` prefix). Publishes `${exports.name}` and the bare `${name}`. A name equal to a step id is refused by lint and run; one another step also exports is a warning (`export-overwritten`). |
-| `auth` | string |  | Auth profile from `.shrt/config.yaml` for this step. `invalid` sends a token the backend never issued and never logs in again: the invalid-token probe. Contradicts `skip_auth`. |
+| `headers` | map string → string |  | Per-step headers. Never `Authorization`: use `auth: <profile>`. |
+| `expect` | list of expectation |  | Assertions on the response, one rule per entry. |
+| `export` | map string → string |  | `name: <response path>` with no `response.` prefix, e.g. `id_invoice: invoice.id_invoice`. Publishes `${exports.name}` and `${name}`. A name equal to a step id is refused; one exported twice is a warning. |
+| `auth` | string |  | The auth profile for this step. `invalid` sends a never-issued token: the invalid-token probe. |
 | `skip_auth` | bool |  | Attach no auth header: the missing-token probe. A login step does not need it. |
-| `allow_fail` | bool |  | Let the chain go on past a transport refusal on a step with no expectations. It never waives a failed expectation or an `error` step; with expectations it does nothing (`inert-allow-fail`). |
+| `allow_fail` | bool |  | Go on past a transport refusal on a step with no expectations. Never waives a failed expectation or an `error`. |
 | `volatile` | list of string |  | Volatile paths for this step only, added to the chain's. |
-| `unordered` | list of string |  | Unordered lists for this step only, added to the chain's. Each must name a repeated field of this step's response. |
-| `wait` | string |  | A Go duration (`25s`, at most `10m`) waited before the step is sent, outside its latency. For behaviour that needs time to pass, such as a session that must outlive an age. |
+| `unordered` | list of string |  | Unordered lists for this step only, added to the chain's. |
+| `wait` | string |  | A Go duration, at most `10m`, waited before sending, outside its latency. |
 
 ### Expectation — exactly one rule per entry
 
 | key | type | req | meaning |
 |---|---|---|---|
-| `path` | string | + | JSON path into this step's response (`invoice.lines.0.amount_minor`), or a reserved `transport.*` path. No `${...}`; a path the response message has no field for is a lint error, and `run` refuses the chain before sending. Field names match case- and separator-insensitively. |
-| `equals` | any |  | Compared as text, so `1` matches `"1"`. May carry `${...}` (an earlier step, or this step's own request). No arithmetic is done. |
-| `includes` | any |  | The path holds a list and at least one item matches: a map names item fields compared as `equals`, a scalar is compared with the item. Order and other items do not matter. May carry `${...}`. |
+| `path` | string | + | Response path (`invoice.lines.0.amount_minor`) or a `transport.*` path. No `${...}`. A path the message lacks is a lint error. Names match ignoring case and separators. |
+| `equals` | any |  | Compared as text: `1` matches `"1"`. May carry `${...}`; no arithmetic. |
+| `includes` | any |  | Some item of the list matches: a map names item fields, a scalar is the item. May carry `${...}`. |
 | `not_equal` | any |  | Present AND different; an absent path fails it. May carry `${...}`. |
 | `contains` | string |  | Substring of the value's text. May carry `${...}`. |
-| `exists` | bool |  | Whether the server SENT the path, read against the populated fields, not the stored record (see the second table below). |
+| `exists` | bool |  | Whether the server SENT the path; see the second table below. |
 | `not_empty` | bool |  | Present and not `""`, `0`, `false`, `[]` or `{}`; an int64 `"0"` is zero too. |
-| `gt` | any |  | Present and a number greater than this. An int64 stored as text is its number and an RFC3339 time is its unix seconds. May carry `${...}`, e.g. `${nowunix+3600}`. |
+| `gt` | any |  | Present and a number greater than this; an int64 as text is its number, an RFC3339 time its unix seconds. May carry `${...}`. |
 | `gte` | any |  | As `gt`, greater than or equal. |
 | `lt` | any |  | As `gt`, less than. |
 | `lte` | any |  | As `gt`, less than or equal. |
 | `between` | list of any |  | Exactly two inclusive bounds `[low, high]`, read as `gt` reads them. |
-| `within` | within |  | `{of: X, by: N}`: present and at most N from X, read as `gt` reads them. The rule for clock values: `expires_at within: {of: "${nowunix+3600}", by: 5}`. |
+| `within` | within |  | `{of: X, by: N}`: at most N from X. The rule for clocks: `within: {of: "${nowunix+3600}", by: 5}`. |
 
 ### What each rule actually does
-
-Produced by evaluating each rule against a fixture response:
 
 | expectation | rule fired | passes |
 |---|---|---|
@@ -80,11 +77,9 @@ Produced by evaluating each rule against a fixture response:
 | no rule at all | `invalid — expectation has no rule` | no |
 | TWO rules on one entry: `equals: NOPE` **and** `not_empty: true` | `not_empty` | **yes** |
 
-`not_empty` is false for `0` and `[]`, so it cannot stand in for `exists`; an int64 `"0"` is zero. A
-rule-less entry fails. Two rules on one entry are a lint error: write one rule per entry.
+Two rules on one entry are a lint error: write one rule per entry.
 
-`exists` reads what the server SENT, not the stored record, which holds every declared field at
-its zero value. Below, the server sent `{"error": {...}}` and nothing else:
+`exists` reads what the server SENT. Below, it sent `{"error": {...}}` and nothing else:
 
 | expectation | rule fired | passes |
 |---|---|---|
@@ -96,13 +91,13 @@ its zero value. Below, the server sent `{"error": {...}}` and nothing else:
 | `equals: ""` on `user.name`, inside a message not sent | `equals` | no |
 | `exists: false` on `user.name`, inside a message not sent | `exists` | **yes** |
 
-A proto3 scalar without `optional` cannot tell unset from zero on the wire; assert the value. A field
-inside a message the server did not send has no zero value: assert the message `exists: false`.
+A proto3 scalar cannot tell unset from zero: assert the value. For a field inside a message not sent,
+assert the message `exists: false`.
 
 ### Reserved `transport.*` paths — the call's transport outcome
 
-A `transport.*` path reads the recorded transport result, not the body. It is the only
-assertion that runs on a Connect error (HTTP 4xx/5xx); every other one is `unevaluated` and fails.
+A `transport.*` path reads the transport result, not the body. On a Connect error (HTTP 4xx/5xx)
+it is the only assertion that runs; the rest are `unevaluated` and fail.
 
 | path | reads |
 |---|---|
@@ -132,15 +127,11 @@ A refused call whose `transport.*` assertions all hold is `passed`, with no `all
 
 ## 2. References — `${...}`
 
-Resolved in `body`, `headers`, and an expectation's `equals`, `not_equal`, `contains` and numeric
-bounds; never in `path`. A reference that is the whole value keeps its JSON type; inside a longer
-string it is text, and only a scalar may be interpolated so. A reference that cannot resolve fails
-the step, and one known not to resolve (a later or missing step, an unset `${env.*}`, a field the
-producing message does not declare) is a lint error and refused before sending. There is no escape
-for a literal `${`; pass such a value through `${env.NAME}` or `-var`. `${nowunix}` resolves to a
-STRING of digits.
-
-Produced by resolving each form against a fixture scope:
+- Resolved in `body`, `headers`, and an expectation's `equals`, `not_equal`, `contains` and numeric bounds. Never in `path`.
+- A whole-value reference keeps its JSON type; inside a longer string it is text, and only a scalar may be interpolated.
+- One known not to resolve (a later or missing step, an unset `${env.*}`, an undeclared field) is a lint error.
+- No escape for a literal `${`: pass it through `${env.NAME}` or `-var`.
+- `${nowunix}` is a STRING of digits.
 
 | reference | resolves to | which is |
 |---|---|---|
@@ -169,27 +160,27 @@ Produced by resolving each form against a fixture scope:
 | `apiVersion` | string | + | `shrt/contract/v1`. |
 | `domain` | string | + | Defaults to the file name. |
 | `description` | string |  | Domain-wide prose: the invariants and call order every rpc here shares. |
-| `failures` | list of failure |  | Failures every rpc in the domain inherits (authn, authz), stated once. With `scope: all` every rpc of every domain inherits it. |
+| `failures` | list of failure |  | Failures every rpc in the domain inherits; `scope: all` shares one with every domain. |
 | `rpcs` | map string → rpccontract | + | Keyed by the fully qualified `package.Service/Rpc`. |
 
 ### Per rpc
 
 | key | type | req | meaning |
 |---|---|---|---|
-| `summary` | string |  | Prose for people: what it does and when you would call it. What a write does to numbers goes in `effects`. |
-| `note` | string |  | Free text about the rpc. It spares no quality term; use `no_producer` for a read with no producer. |
-| `auth` | string |  | Auth profile this rpc needs when the default principal is the wrong one; `plan` writes it onto the step. |
-| `requires_role` | list of string |  | Roles the caller must hold. `[NONE]` says no role gate; leaving the key out is scored as an omission. With auth configured, `plan` calls a gated rpc as each other profile, expecting the denial. |
-| `required` | list of string | + | Fields the server rejects without, read from the backend; reads too. `[NONE]`: it rejects nothing. `[UNKNOWN]`: the handler could not be found (a warning, scored as empty). |
-| `needs` | list of string |  | An rpc that must run first but whose output no field consumes, e.g. the write that creates what a list lists. `plan` makes it hold for every entity the step touches; a slice counts an rpc whose effects increase a field this one increases as meeting it. A write that only takes the record to the state this rpc's `restore:` names is a way to reach that state, not a precondition: `plan` also calls this rpc on a record left in the state before it, item-count probes included, unless a failure refuses that state. |
-| `no_producer` | string |  | Why no write in this API creates the rows this read returns (a seed, a migration, a feed). The only thing that spares the no-producer charge. |
-| `before` | list of string |  | The inverse of `needs`, declared by the prerequisite's own domain. Takes rpc names only and pulls in the unaliased rpc. |
-| `fields` | map string → fieldcontract |  | Per request field. Dotted keys reach nested messages; after a repeated field an index picks one entry (`lines.1.id_account`), and an unindexed key (`lines.qty`) applies to every entry. |
+| `summary` | string |  | Prose for people. Numbers a write moves go in `effects`. |
+| `note` | string |  | Free text. Spares no quality term. |
+| `auth` | string |  | The profile the rpc needs instead of the default; `plan` puts it on the step. |
+| `requires_role` | list of string |  | Roles the caller must hold; `[NONE]`: no role gate. `plan` calls a gated rpc as each other profile, expecting denial. |
+| `required` | list of string | + | Fields the server rejects without, reads too. `[NONE]`: nothing. `[UNKNOWN]`: handler not found. |
+| `needs` | list of string |  | An rpc that must run first though no field consumes its output, e.g. the write creating what a list lists. A write that only reaches this rpc's `restore:` state also makes `plan` call it from the state before. |
+| `no_producer` | string |  | Why no write here creates the rows this read returns: a seed, a feed. |
+| `before` | list of string |  | The inverse of `needs`, declared in the prerequisite's domain. Plain rpc names only. |
+| `fields` | map string → fieldcontract |  | Per request field. Dotted keys nest; `lines.1.id_account` picks an entry, `lines.qty` applies to every entry. |
 | `aliases` | map string → aliascontract |  | Per-instance overrides, so two aliased steps of one rpc differ. |
-| `effects` | map string → effect |  | What this rpc does to numbers, as data `plan` asserts, keyed by the number's field name: `{balance: {increase: amount}}`. Or a word: `none` (leaves it alone), `zero` (a create starts it at 0), `per_item` (keyed by a repeated request field: each item is applied or refused alone). A stated key wins over the prose. |
+| `effects` | map string → effect |  | What it does to numbers, keyed by field: `{balance: {increase: amount}}`, or `none`, `zero` (a create starts at 0), `per_item` (on a repeated request field: each item applied or refused alone). |
 | `exports` | map string → string |  | Response paths worth exporting, and why. |
 | `terminal` | map string → string |  | Response fields that deliberately have no consumer. |
-| `soft_signals` | map string → string |  | Response fields carrying advisory information rather than success or failure. |
+| `soft_signals` | map string → string |  | Advisory response fields, neither success nor failure. |
 | `failures` | list of failure |  | One entry per way this rpc refuses. |
 | `source` | list of string |  | Files read to determine all this, without line ranges. |
 | `status` | string | + | `draft`, or `verified` with a `verified_run`. An agent leaves it `draft`. |
@@ -203,9 +194,9 @@ Produced by resolving each form against a fixture scope:
 | `from` | string |  | `<rpc>[@alias]->response_path`: the value comes from an earlier call's response, which orders the two. |
 | `value` | string |  | A fixed literal or template, e.g. `${uuid}` or `inv-${vars.tag}-a`. `value: "0"` marks a zero as deliberate. |
 | `same_as` | string |  | `<rpc>[@alias]->request_path`: must equal what an earlier call SENT. Exclusive with `from`. |
-| `oneof` | string |  | Mutual-exclusion group; at most one member carries a value, and that member is the one scaffolded. |
+| `oneof` | string |  | Mutual-exclusion group; one member carries a value. |
 | `checked_by` | string |  | How the server validates the id, which decides whether a bad one is a named failure or an unnamed 500. |
-| `note` | string |  | Units, formats, constraints. `plan` reads `unique`, normalisation (`stored lowercased`, `trimmed`) and a stated minimum or maximum from it. |
+| `note` | string |  | Units, formats, constraints; `plan` reads uniqueness, normalisation and stated bounds from it. |
 
 ### `aliases.<name>`
 
@@ -218,11 +209,11 @@ Produced by resolving each form against a fixture scope:
 
 | key | type | req | meaning |
 |---|---|---|---|
-| `increase` | string |  | The request number it grows by: `amount`, or `lines.amount` for each line. The record moved is the one a `from:`-wired id names whose response carries the key. |
+| `increase` | string |  | The request number it grows by: `amount`, or `lines.amount` per line, on the record a `from:`-wired id names. |
 | `decrease` | string |  | As `increase`, shrinking. |
-| `of` | string |  | An id wired `from:` another write: the path is read from that record's request, one move per line, e.g. `{decrease: lines.amount, of: id_invoice}`. Only with `increase` or `decrease`; `restore` takes none. |
-| `restore` | string |  | The state from which this write gives back what a decrease took, e.g. `{balance: {restore: POSTED}}`. From any other state it gives back nothing, so the write is valid there too. |
-| `sum` | string |  | `<list>.<qty>`: the key is the sum over the lines of qty times `times`; a 64-bit key also gets a line past 2^32. |
+| `of` | string |  | An id wired `from:` another write whose request holds the path: `{decrease: lines.amount, of: id_invoice}`. Not with `restore`. |
+| `restore` | string |  | The state from which it gives back what a decrease took: `{balance: {restore: POSTED}}`. From other states, nothing. |
+| `sum` | string |  | `<list>.<qty>`: the key sums qty times `times` over the lines. |
 | `times` | string |  | The price in the request of the record each line names: `{total: {sum: lines.qty, times: unit_price}}`. |
 
 ### `failures[]`
@@ -234,9 +225,9 @@ Produced by resolving each form against a fixture scope:
 | `reason` | string |  | The backend's own reason string, verbatim; for a shape or auth failure, a label you choose. |
 | `message` | string |  | The message text, when it is worth pinning. |
 | `field` | string |  | The request field at fault, or the field a uniqueness refusal is about when its reason does not name it. |
-| `when` | string |  | The condition that raises it, written as a condition. `plan` derives probes from it: uniqueness, shortage or limit, a named state, not found, and `invalid_argument` clauses such as empty, zero or negative. |
-| `unreachable` | string |  | Declared but cannot fire, and why; kept out of coverage. E.g. a refusal only a body the proto cannot express would reach. |
-| `scope` | string |  | Only in an overlay's domain-level `failures:`. `all` shares it with every rpc of every domain (declare `unauthenticated` once, in `auth.yaml`). |
+| `when` | string |  | The condition that raises it. `plan` derives probes from it: uniqueness, a limit, a named state, not found, and `invalid_argument` clauses such as empty, zero or negative. |
+| `unreachable` | string |  | Why it cannot fire, e.g. only a body the proto cannot express reaches it. Kept out of coverage. |
+| `scope` | string |  | Domain-level `failures:` only. `all` shares it with every domain: declare `unauthenticated` once. |
 | `pending_deploy` | string |  | Declared, correct, and not yet deployed; carries the commit that will make it reachable. |
 | `unique` | uniquecompare |  | How a uniqueness refusal compares values, as data: `{case: ignore, trim: true}`. Wins over the prose. |
 
@@ -256,9 +247,9 @@ Produced by resolving each form against a fixture scope:
 | `auth` | auth |  | The login call, declared once for the whole repo. |
 | `paths` | paths | + | Where chains, contracts, runs and safe spots live. |
 | `conventions` | conventions |  | How this backend names reads and reports its verdict. Every key optional. |
-| `latency` | latency |  | Latency regression detection in `verify` and in `run` of a chain with a safe spot. A step is slow when it took at least `floor_ms` more AND `ratio` times as long as in the safe spot's run. |
+| `latency` | latency |  | Slowdown detection against the safe spot's run: `floor_ms` more AND `ratio` times as long. |
 | `volatile` | list of string |  | Volatile paths applied to every chain. |
-| `redact` | list of string |  | Paths blanked in every run record and never compared by `verify`; credentials belong here. An explicit list REPLACES the defaults: `**.*password`, `**.access_token`, `**.refresh_token`, `**.token`, `**.*secret`, `**.*pin`, `**.*pin_code`, `**.*passcode`, `**.*otp`, `**.api_key`, `**.authorization`. Known secrets are also scrubbed by value wherever they appear. |
+| `redact` | list of string |  | Paths blanked in every run record. An explicit list REPLACES the defaults: `**.*password`, `**.access_token`, `**.refresh_token`, `**.token`, `**.*secret`, `**.*pin`, `**.*pin_code`, `**.*passcode`, `**.*otp`, `**.api_key`, `**.authorization`. Known secrets are also scrubbed by value. |
 
 ### `target`
 
@@ -268,7 +259,7 @@ Produced by resolving each form against a fixture scope:
 | `host_override` | string |  | Sent as the `Host` header and TLS `ServerName` while connecting to `base_url`. |
 | `headers` | map string → string |  | Headers added to every request. Never the auth header when `auth` is declared. |
 | `timeout` | string |  | Per-request timeout, e.g. `30s`. Default 30s. A call with no answer in time was still sent. |
-| `build_header` | string |  | A response header carrying the server's build (`X-Server-Version`), stamped into each run record as `build`. `run -build <label>` overrides it. |
+| `build_header` | string |  | Response header carrying the server's build, stamped into runs as `build`. |
 
 ### `descriptor`
 
@@ -325,8 +316,6 @@ Produced by resolving each form against a fixture scope:
 
 ## 5. Run record — `.shrt/runs/<chain>/<run-id>.json`
 
-The evidence file; the JSON names below are the ones in the file.
-
 | field | type | meaning |
 |---|---|---|
 | `format` | int | Record format version, written with the seal. |
@@ -341,7 +330,7 @@ The evidence file; the JSON names below are the ones in the file.
 | `status` | string | `passed`, `failed` or `error`; never `skipped`, which is a step status. |
 | `dry_run` | bool | True for a `-dry-run` record, which is never saved. |
 | `keep_going` | bool | True for a `-keep-going` run. |
-| `replay_of` | string | On a `verify` replay: the safe spot's run id. `shrt diff <chain>` skips one recorded right after a run. |
+| `replay_of` | string | On a `verify` replay, the safe spot's run id. |
 | `vars` | map string → any | The resolved vars this run used; secrets show as `<redacted>`. |
 | `exports` | map string → any | Everything any step exported. |
 | `volatile` | list of string | Volatile patterns in force for the whole run, chain plus config. |
@@ -367,9 +356,9 @@ The evidence file; the JSON names below are the ones in the file.
 | `auth_profile` | string | The profile whose token the step carried: `default`, a profile name, `invalid`, or `none`. |
 | `auth_principal` | string | Digest of the account the profile logged in as, no secret in it; `verify` compares it. |
 | `auth_retry` | string | `resent`: answered unauthenticated, logged in again and re-sent. `not_resent`: a write that may have been performed was not re-sent. |
-| `first_attempt` | attempt | A read's first answer when it was a server error: the read is re-sent once and judged on the answer; the failure stays a FINDING. |
-| `token_refused` | list of tokenrefusal | Each token refused at this step: fingerprint, when issued, stated expiry, when refused. A cached token refused on first use is re-minted without a line; repeated early refusal is a `FINDING`. |
-| `status` | string | `passed`, `failed`, `error`, or `skipped` (a dry-run step, or a `-keep-going` step held back behind one that did not pass). |
+| `first_attempt` | attempt | A read's first answer when it was a server error; the re-send is judged. |
+| `token_refused` | list of tokenrefusal | Each token refused at this step: fingerprint, issued, stated expiry, refused. |
+| `status` | string | `passed`, `failed`, `error` or `skipped`. |
 | `http_status` | int | Transport status. 200 with a non-OK envelope code is an in-band refusal. |
 | `latency_ms` | int | Wall time of the call. |
 | `latency_resent_ms` | list of int | Latencies of re-sends of a read that was slow against the safe spot's run. |
@@ -387,7 +376,7 @@ The evidence file; the JSON names below are the ones in the file.
 | `note` | string | Runner commentary, e.g. whether a login seeded a profile's token. |
 | `volatile` | list of string | Step-level volatile patterns. |
 | `unordered` | list of string | The unordered lists the run applied to this step. |
-| `drift` | bool | With `validate_output` on, the response did not match its message: `failed`, and no expectation was evaluated. Rebuild the descriptor first. |
+| `drift` | bool | Under `validate_output`, the response did not match its message. |
 
 ### Each entry of a step's `expect`
 
@@ -402,8 +391,7 @@ The evidence file; the JSON names below are the ones in the file.
 
 ## 6. Safe spot — `.shrt/safespots/<chain>.json`
 
-Written only by `shrt confirm <chain> -approve`. A proposal waits in
-`.shrt/safespots/pending/<chain>.json` with its report beside it until approved or rejected.
+Written only by `shrt confirm <chain> -approve`. A proposal waits in `.shrt/safespots/pending/<chain>.json`.
 
 | field | type | meaning |
 |---|---|---|
@@ -425,8 +413,6 @@ Written only by `shrt confirm <chain> -approve`. A proposal waits in
 
 ## 7. What `shrt verify` actually compares
 
-Produced by running `diff.Compare` on a fabricated safe spot and replay:
-
 | what changed between the confirmed run and the replay | reported? |
 |---|---|
 | `qty` went from `1` to `2` | **yes** |
@@ -438,27 +424,22 @@ Produced by running `diff.Compare` on a fabricated safe spot and replay:
 | `lines` went from 2 items to 1 | **yes** |
 | `qty` went from the STRING `"1"` to the NUMBER `1` | **yes** |
 
-Besides `volatile` paths, verify masks a changed value that is id- or timestamp-shaped on both
-sides (same kind of id, same unit of time, within 400 days of its run), and a value that only
-echoes a fixture name or a `${uuid}` the chain sent; here 2 value(s) were masked. A value lost
-under a volatile pattern (null, empty, gone) is still reported. `-masked` lists every masked value.
-Ids are renamed consistently across the record, so a stale id is reported. A list declared
-`unordered` is compared as a multiset. A value under a `redact` path is never compared. Before the
-responses, verify compares what each step SENT and the chain itself with the safe spot's run: a
-changed input gives `drift with different input`, a changed chain `drift after a chain change`, when
-it explains every response change; anything else is a `regression`.
+- Besides `volatile` paths, verify masks a value id- or timestamp-shaped on both sides (same kind of id, same unit,
+  within 400 days of its run) and a value echoing a fixture name or `${uuid}`; here 2 value(s). `-masked` lists them.
+- A value lost under a volatile pattern (null, empty, gone) is still reported.
+- Ids are renamed consistently across the record, so a stale id is reported.
+- An `unordered` list is compared as a multiset; a `redact` path never.
+- First it compares what each step SENT and the chain. A changed input that explains every response change is
+  `drift with different input`, a changed chain `drift after a chain change`; anything else is a `regression`.
 
 Change kinds `shrt verify` and `shrt diff` print: `missing` (a path the baseline had is gone), `unexpected`
 (a path the baseline did not have), `changed` (same JSON type, different value), `type` (different JSON
 type), `length` (a list or the step count has a different number of items), `order` (a step id or rpc
 differs at that position), `status` (the step's pass/fail status changed).
-Steps are paired by id, then by call and position, so a renamed or inserted step is one change.
-References and paths are compared in one canonical spelling, so a field respelt in case, as its
-JSON name or as `${steps.a.response.x}` for `${a.x}` is no change.
+Steps pair by id, then by call and position: a renamed or inserted step is one change. A field respelt in
+case, as its JSON name, or as `${steps.a.response.x}` for `${a.x}` is no change.
 
 ## 8. Closed vocabularies
-
-Read from the constants themselves, so a renamed constant shows up here:
 
 | where | allowed |
 |---|---|
@@ -472,39 +453,15 @@ Read from the constants themselves, so a renamed constant shows up here:
 | run record status | `passed`, `failed`, `error` |
 | STEP status | the three above, plus `skipped` |
 
-**`error`** means the step produced no answer to judge; usually nothing was sent. Read
-the step's `error` before blaming the backend. **`skipped`** is a step status only: a
-dry-run step, or a `-keep-going` step held back behind one that did not pass. A step with
-`"drift": true` is `failed`: it was sent and answered, but did not match its message
-under `validate_output`, so no expectation was evaluated; rebuild the descriptor before reading it
-as a backend defect.
+- `error`: no answer to judge, usually nothing sent. Read the step's `error` before blaming the backend.
+- `skipped`: a dry-run step, or a `-keep-going` step held back behind one that did not pass.
+- `"drift": true` is `failed`: answered, but not as its message under `validate_output`. Rebuild the descriptor first.
 
 ## 9. Commands
 
-Captured by running the binary, so a renamed command cannot survive here:
-
-```
-shrt — record, replay and verify internal API call chains
-
-usage: shrt <command> [flags]
-
-  catalog    build, list and describe the RPC surface
-  chain      scaffold, list, search, lint, slice and audit chain definitions
-  confirm    propose a passing run as its chain's safe spot, then approve or reject it once the user decides
-  contract   author and use the curated RPC contracts agents write chains from
-  diff       compare two recorded runs of a chain step by step, with no safe spot
-  doctor     check this repo's .shrt/ installation: docs, descriptor, ignores, tokens, auth
-  gate       verify every chain with a safe spot, run the rest, grouping what failed
-  init       set up .shrt/ and the Claude agent kit in the current repo
-  run        replay a chain against the target and record the result
-  verify     replay a chain and diff it against its safe spot
-  version    which build this is: version, commit, and the docs it carries
-
-run 'shrt <command> -h' for command flags
-```
-
-| group | subcommands |
+| command | subcommands |
 |---|---|
+| `shrt` | `catalog`, `chain`, `confirm`, `contract`, `diff`, `doctor`, `gate`, `init`, `run`, `verify`, `version` |
 | `shrt catalog` | `<build\|ls\|describe> [flags]` |
 | `shrt chain` | `<new\|ls\|which\|lint\|slice\|pin\|hollow> [flags]` |
 | `shrt contract` | `<init\|lint\|show\|plan\|status\|quality> [flags]` |
@@ -512,8 +469,6 @@ run 'shrt <command> -h' for command flags
 Every command prints its flags and exit codes with `-h`. A run id is accepted with or without `.json`.
 
 ## 10. Volatile and redact patterns
-
-Produced by running `pathmask.Match(pattern, path)`:
 
 | pattern | path | matches |
 |---|---|---|
@@ -532,6 +487,4 @@ Produced by running `pathmask.Match(pattern, path)`:
 | `**.*pin` | `login.user_pin` | **yes** |
 | `**.*pin` | `login.opinion` | no |
 
-A `*` globs inside a segment and matching folds separators and case, so `**.*password` covers
-`user_password` and `userPassword` alike. `**.` reaches any depth; without it a pattern matches
-only that exact path.
+`*` globs within a segment; `**.` reaches any depth. Matching folds case and separators.

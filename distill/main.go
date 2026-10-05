@@ -31,41 +31,41 @@ func layout() (string, string) {
 
 var notes = map[string]string{
 	"Chain.apiVersion":  "`shrt/v1`. Defaults to it when omitted.",
-	"Chain.name":        "Names the run directory and the safe spot. Defaults to the file name; a different name is a lint warning, and two files with one name are a lint error.",
+	"Chain.name":        "Names the run directory and safe spot. Defaults to the file name; differing from it is a lint warning, sharing it a lint error.",
 	"Chain.description": "What state this chain reproduces, for the next reader.",
-	"Chain.vars":        "Referenced as `${vars.x}`; override per run with `-var x=y`. A var the chain reads without declaring must be given with `-var`, or `run` and `verify` refuse before sending; the exception is `tag`, which gets a fresh value each run, recorded in the run's `vars`.",
+	"Chain.vars":        "`${vars.x}`; override with `-var x=y`. An undeclared var must come from `-var`, except `tag`, which is fresh each run.",
 	"Chain.volatile":    "Response paths `shrt verify` and `shrt diff` mask in every step. Expectations still see the real value.",
-	"Chain.unordered":   "Response lists `shrt verify` compares as a multiset in every step, for an rpc that promises no order. Name the list without indices (`items`, `invoices.lines`).",
-	"Chain.redact":      "Paths blanked in the run record (requests, responses, vars, exports, `want`/`got`) and so never compared by `verify`, added to the config's. Redact only what must not be stored.",
+	"Chain.unordered":   "Response lists `verify` compares as multisets, for an rpc that promises no order. No indices: `invoices.lines`.",
+	"Chain.redact":      "Paths blanked everywhere in the run record and never compared, added to the config's. Only what must not be stored.",
 	"Chain.steps":       "Ordered; never reordered, parallelised or skipped.",
-	"Chain.kept_red":    "Pins a known defect the chain shows on purpose: the step and expectation path that fail, optionally the value got. `shrt run` goes past every failure and exits 0 only while the chain fails exactly as pinned; such a chain is never confirmed.",
+	"Chain.kept_red":    "A known defect the chain shows on purpose. `run` exits 0 only while it fails exactly as pinned; never confirmed.",
 
 	"Step.id":          "Unique; later steps reference it. Derived from the rpc name when omitted.",
 	"Step.description": "Why this step is here and what its assertions mean.",
-	"Step.call":        "`package.Service/Rpc`, `Service/Rpc`, or a bare `Rpc` when unambiguous. A server-streaming rpc records its first message as `messages.0` (a `WatchInvoice` step asserts `messages.0.status.code`) and stops reading, within 5s; client- and bidi-streaming rpcs are refused.",
+	"Step.call":        "`package.Service/Rpc`, `Service/Rpc`, or a bare unambiguous `Rpc`. A server stream records its first message as `messages.0`, within 5s; client and bidi streams are refused.",
 	"Step.body":        "The request, validated against the proto request message before anything is sent.",
-	"Step.headers":     "Per-step headers. Never the auth header: use `auth: <profile>`; a hand-written `Authorization` is a lint error and `run` refuses it.",
-	"Step.expect":      "Assertions on this step's response. Each entry holds exactly one rule and nearly always a `path`.",
-	"Step.export":      "`name: <path in the response>`, e.g. `id_invoice: invoice.id_invoice` (no `response.` prefix). Publishes `${exports.name}` and the bare `${name}`. A name equal to a step id is refused by lint and run; one another step also exports is a warning (`export-overwritten`).",
-	"Step.auth":        "Auth profile from `.shrt/config.yaml` for this step. `invalid` sends a token the backend never issued and never logs in again: the invalid-token probe. Contradicts `skip_auth`.",
+	"Step.headers":     "Per-step headers. Never `Authorization`: use `auth: <profile>`.",
+	"Step.expect":      "Assertions on the response, one rule per entry.",
+	"Step.export":      "`name: <response path>` with no `response.` prefix, e.g. `id_invoice: invoice.id_invoice`. Publishes `${exports.name}` and `${name}`. A name equal to a step id is refused; one exported twice is a warning.",
+	"Step.auth":        "The auth profile for this step. `invalid` sends a never-issued token: the invalid-token probe.",
 	"Step.skip_auth":   "Attach no auth header: the missing-token probe. A login step does not need it.",
-	"Step.allow_fail":  "Let the chain go on past a transport refusal on a step with no expectations. It never waives a failed expectation or an `error` step; with expectations it does nothing (`inert-allow-fail`).",
+	"Step.allow_fail":  "Go on past a transport refusal on a step with no expectations. Never waives a failed expectation or an `error`.",
 	"Step.volatile":    "Volatile paths for this step only, added to the chain's.",
-	"Step.unordered":   "Unordered lists for this step only, added to the chain's. Each must name a repeated field of this step's response.",
-	"Step.wait":        "A Go duration (`25s`, at most `10m`) waited before the step is sent, outside its latency. For behaviour that needs time to pass, such as a session that must outlive an age.",
+	"Step.unordered":   "Unordered lists for this step only, added to the chain's.",
+	"Step.wait":        "A Go duration, at most `10m`, waited before sending, outside its latency.",
 
-	"Expectation.path":      "JSON path into this step's response (`invoice.lines.0.amount_minor`), or a reserved `transport.*` path. No `${...}`; a path the response message has no field for is a lint error, and `run` refuses the chain before sending. Field names match case- and separator-insensitively.",
-	"Expectation.equals":    "Compared as text, so `1` matches `\"1\"`. May carry `${...}` (an earlier step, or this step's own request). No arithmetic is done.",
+	"Expectation.path":      "Response path (`invoice.lines.0.amount_minor`) or a `transport.*` path. No `${...}`. A path the message lacks is a lint error. Names match ignoring case and separators.",
+	"Expectation.equals":    "Compared as text: `1` matches `\"1\"`. May carry `${...}`; no arithmetic.",
 	"Expectation.not_equal": "Present AND different; an absent path fails it. May carry `${...}`.",
 	"Expectation.contains":  "Substring of the value's text. May carry `${...}`.",
-	"Expectation.includes":  "The path holds a list and at least one item matches: a map names item fields compared as `equals`, a scalar is compared with the item. Order and other items do not matter. May carry `${...}`.",
-	"Expectation.exists":    "Whether the server SENT the path, read against the populated fields, not the stored record (see the second table below).",
-	"Expectation.gt":        "Present and a number greater than this. An int64 stored as text is its number and an RFC3339 time is its unix seconds. May carry `${...}`, e.g. `${nowunix+3600}`.",
+	"Expectation.includes":  "Some item of the list matches: a map names item fields, a scalar is the item. May carry `${...}`.",
+	"Expectation.exists":    "Whether the server SENT the path; see the second table below.",
+	"Expectation.gt":        "Present and a number greater than this; an int64 as text is its number, an RFC3339 time its unix seconds. May carry `${...}`.",
 	"Expectation.gte":       "As `gt`, greater than or equal.",
 	"Expectation.lt":        "As `gt`, less than.",
 	"Expectation.lte":       "As `gt`, less than or equal.",
 	"Expectation.between":   "Exactly two inclusive bounds `[low, high]`, read as `gt` reads them.",
-	"Expectation.within":    "`{of: X, by: N}`: present and at most N from X, read as `gt` reads them. The rule for clock values: `expires_at within: {of: \"${nowunix+3600}\", by: 5}`.",
+	"Expectation.within":    "`{of: X, by: N}`: at most N from X. The rule for clocks: `within: {of: \"${nowunix+3600}\", by: 5}`.",
 	"Within.of":             "The value to be near, read as `gt` reads its bound. May carry `${...}`.",
 	"Within.by":             "The largest distance allowed, a number.",
 	"Expectation.not_empty": "Present and not `\"\"`, `0`, `false`, `[]` or `{}`; an int64 `\"0\"` is zero too.",
@@ -73,23 +73,23 @@ var notes = map[string]string{
 	"Overlay.apiVersion":  "`shrt/contract/v1`.",
 	"Overlay.domain":      "Defaults to the file name.",
 	"Overlay.description": "Domain-wide prose: the invariants and call order every rpc here shares.",
-	"Overlay.failures":    "Failures every rpc in the domain inherits (authn, authz), stated once. With `scope: all` every rpc of every domain inherits it.",
+	"Overlay.failures":    "Failures every rpc in the domain inherits; `scope: all` shares one with every domain.",
 	"Overlay.rpcs":        "Keyed by the fully qualified `package.Service/Rpc`.",
 
-	"RPCContract.summary":       "Prose for people: what it does and when you would call it. What a write does to numbers goes in `effects`.",
-	"RPCContract.effects":       "What this rpc does to numbers, as data `plan` asserts, keyed by the number's field name: `{balance: {increase: amount}}`. Or a word: `none` (leaves it alone), `zero` (a create starts it at 0), `per_item` (keyed by a repeated request field: each item is applied or refused alone). A stated key wins over the prose.",
-	"RPCContract.note":          "Free text about the rpc. It spares no quality term; use `no_producer` for a read with no producer.",
-	"RPCContract.auth":          "Auth profile this rpc needs when the default principal is the wrong one; `plan` writes it onto the step.",
-	"RPCContract.requires_role": "Roles the caller must hold. `[NONE]` says no role gate; leaving the key out is scored as an omission. With auth configured, `plan` calls a gated rpc as each other profile, expecting the denial.",
-	"RPCContract.no_producer":   "Why no write in this API creates the rows this read returns (a seed, a migration, a feed). The only thing that spares the no-producer charge.",
-	"RPCContract.required":      "Fields the server rejects without, read from the backend; reads too. `[NONE]`: it rejects nothing. `[UNKNOWN]`: the handler could not be found (a warning, scored as empty).",
-	"RPCContract.needs":         "An rpc that must run first but whose output no field consumes, e.g. the write that creates what a list lists. `plan` makes it hold for every entity the step touches; a slice counts an rpc whose effects increase a field this one increases as meeting it. A write that only takes the record to the state this rpc's `restore:` names is a way to reach that state, not a precondition: `plan` also calls this rpc on a record left in the state before it, item-count probes included, unless a failure refuses that state.",
-	"RPCContract.before":        "The inverse of `needs`, declared by the prerequisite's own domain. Takes rpc names only and pulls in the unaliased rpc.",
-	"RPCContract.fields":        "Per request field. Dotted keys reach nested messages; after a repeated field an index picks one entry (`lines.1.id_account`), and an unindexed key (`lines.qty`) applies to every entry.",
+	"RPCContract.summary":       "Prose for people. Numbers a write moves go in `effects`.",
+	"RPCContract.effects":       "What it does to numbers, keyed by field: `{balance: {increase: amount}}`, or `none`, `zero` (a create starts at 0), `per_item` (on a repeated request field: each item applied or refused alone).",
+	"RPCContract.note":          "Free text. Spares no quality term.",
+	"RPCContract.auth":          "The profile the rpc needs instead of the default; `plan` puts it on the step.",
+	"RPCContract.requires_role": "Roles the caller must hold; `[NONE]`: no role gate. `plan` calls a gated rpc as each other profile, expecting denial.",
+	"RPCContract.no_producer":   "Why no write here creates the rows this read returns: a seed, a feed.",
+	"RPCContract.required":      "Fields the server rejects without, reads too. `[NONE]`: nothing. `[UNKNOWN]`: handler not found.",
+	"RPCContract.needs":         "An rpc that must run first though no field consumes its output, e.g. the write creating what a list lists. A write that only reaches this rpc's `restore:` state also makes `plan` call it from the state before.",
+	"RPCContract.before":        "The inverse of `needs`, declared in the prerequisite's domain. Plain rpc names only.",
+	"RPCContract.fields":        "Per request field. Dotted keys nest; `lines.1.id_account` picks an entry, `lines.qty` applies to every entry.",
 	"RPCContract.aliases":       "Per-instance overrides, so two aliased steps of one rpc differ.",
 	"RPCContract.exports":       "Response paths worth exporting, and why.",
 	"RPCContract.terminal":      "Response fields that deliberately have no consumer.",
-	"RPCContract.soft_signals":  "Response fields carrying advisory information rather than success or failure.",
+	"RPCContract.soft_signals":  "Advisory response fields, neither success nor failure.",
 	"RPCContract.failures":      "One entry per way this rpc refuses.",
 	"RPCContract.source":        "Files read to determine all this, without line ranges.",
 	"RPCContract.status":        "`draft`, or `verified` with a `verified_run`. An agent leaves it `draft`.",
@@ -99,15 +99,15 @@ var notes = map[string]string{
 	"FieldContract.from":       "`<rpc>[@alias]->response_path`: the value comes from an earlier call's response, which orders the two.",
 	"FieldContract.value":      "A fixed literal or template, e.g. `${uuid}` or `inv-${vars.tag}-a`. `value: \"0\"` marks a zero as deliberate.",
 	"FieldContract.same_as":    "`<rpc>[@alias]->request_path`: must equal what an earlier call SENT. Exclusive with `from`.",
-	"FieldContract.oneof":      "Mutual-exclusion group; at most one member carries a value, and that member is the one scaffolded.",
+	"FieldContract.oneof":      "Mutual-exclusion group; one member carries a value.",
 	"FieldContract.checked_by": "How the server validates the id, which decides whether a bad one is a named failure or an unnamed 500.",
-	"FieldContract.note":       "Units, formats, constraints. `plan` reads `unique`, normalisation (`stored lowercased`, `trimmed`) and a stated minimum or maximum from it.",
+	"FieldContract.note":       "Units, formats, constraints; `plan` reads uniqueness, normalisation and stated bounds from it.",
 
-	"Effect.increase": "The request number it grows by: `amount`, or `lines.amount` for each line. The record moved is the one a `from:`-wired id names whose response carries the key.",
+	"Effect.increase": "The request number it grows by: `amount`, or `lines.amount` per line, on the record a `from:`-wired id names.",
 	"Effect.decrease": "As `increase`, shrinking.",
-	"Effect.of":       "An id wired `from:` another write: the path is read from that record's request, one move per line, e.g. `{decrease: lines.amount, of: id_invoice}`. Only with `increase` or `decrease`; `restore` takes none.",
-	"Effect.restore":  "The state from which this write gives back what a decrease took, e.g. `{balance: {restore: POSTED}}`. From any other state it gives back nothing, so the write is valid there too.",
-	"Effect.sum":      "`<list>.<qty>`: the key is the sum over the lines of qty times `times`; a 64-bit key also gets a line past 2^32.",
+	"Effect.of":       "An id wired `from:` another write whose request holds the path: `{decrease: lines.amount, of: id_invoice}`. Not with `restore`.",
+	"Effect.restore":  "The state from which it gives back what a decrease took: `{balance: {restore: POSTED}}`. From other states, nothing.",
+	"Effect.sum":      "`<list>.<qty>`: the key sums qty times `times` over the lines.",
 	"Effect.times":    "The price in the request of the record each line names: `{total: {sum: lines.qty, times: unit_price}}`.",
 
 	"AliasContract.note":   "What makes this instance different.",
@@ -118,12 +118,12 @@ var notes = map[string]string{
 	"Failure.reason":         "The backend's own reason string, verbatim; for a shape or auth failure, a label you choose.",
 	"Failure.message":        "The message text, when it is worth pinning.",
 	"Failure.field":          "The request field at fault, or the field a uniqueness refusal is about when its reason does not name it.",
-	"Failure.when":           "The condition that raises it, written as a condition. `plan` derives probes from it: uniqueness, shortage or limit, a named state, not found, and `invalid_argument` clauses such as empty, zero or negative.",
-	"Failure.unreachable":    "Declared but cannot fire, and why; kept out of coverage. E.g. a refusal only a body the proto cannot express would reach.",
+	"Failure.when":           "The condition that raises it. `plan` derives probes from it: uniqueness, a limit, a named state, not found, and `invalid_argument` clauses such as empty, zero or negative.",
+	"Failure.unreachable":    "Why it cannot fire, e.g. only a body the proto cannot express reaches it. Kept out of coverage.",
 	"Failure.unique":         "How a uniqueness refusal compares values, as data: `{case: ignore, trim: true}`. Wins over the prose.",
 	"UniqueCompare.case":     "`ignore` adds a case variant expecting the refusal; `exact` adds none.",
 	"UniqueCompare.trim":     "`true` adds the value padded with spaces expecting the refusal; `false` adds none.",
-	"Failure.scope":          "Only in an overlay's domain-level `failures:`. `all` shares it with every rpc of every domain (declare `unauthenticated` once, in `auth.yaml`).",
+	"Failure.scope":          "Domain-level `failures:` only. `all` shares it with every domain: declare `unauthenticated` once.",
 	"Failure.pending_deploy": "Declared, correct, and not yet deployed; carries the commit that will make it reachable.",
 
 	"Config.target":      "Where chains run.",
@@ -131,15 +131,15 @@ var notes = map[string]string{
 	"Config.auth":        "The login call, declared once for the whole repo.",
 	"Config.paths":       "Where chains, contracts, runs and safe spots live.",
 	"Config.conventions": "How this backend names reads and reports its verdict. Every key optional.",
-	"Config.latency":     "Latency regression detection in `verify` and in `run` of a chain with a safe spot. A step is slow when it took at least `floor_ms` more AND `ratio` times as long as in the safe spot's run.",
+	"Config.latency":     "Slowdown detection against the safe spot's run: `floor_ms` more AND `ratio` times as long.",
 	"Config.volatile":    "Volatile paths applied to every chain.",
-	"Config.redact":      "Paths blanked in every run record and never compared by `verify`; credentials belong here. An explicit list REPLACES the defaults: `" + strings.Join(config.DefaultRedact(), "`, `") + "`. Known secrets are also scrubbed by value wherever they appear.",
+	"Config.redact":      "Paths blanked in every run record. An explicit list REPLACES the defaults: `" + strings.Join(config.DefaultRedact(), "`, `") + "`. Known secrets are also scrubbed by value.",
 
 	"Target.base_url":      "Scheme and host of the backend. Redirects are never followed.",
 	"Target.host_override": "Sent as the `Host` header and TLS `ServerName` while connecting to `base_url`.",
 	"Target.headers":       "Headers added to every request. Never the auth header when `auth` is declared.",
 	"Target.timeout":       "Per-request timeout, e.g. `30s`. Default 30s. A call with no answer in time was still sent.",
-	"Target.build_header":  "A response header carrying the server's build (`X-Server-Version`), stamped into each run record as `build`. `run -build <label>` overrides it.",
+	"Target.build_header":  "Response header carrying the server's build, stamped into runs as `build`.",
 
 	"Auth.call":           "The login rpc.",
 	"Auth.body":           "Its request body. `${env.X}` for credentials, never a literal; only `${env.*}`, `${uuid}` and clock forms resolve here.",
@@ -175,7 +175,7 @@ var notes = map[string]string{
 	"Record.failure":       "Why the run stopped, one line per step that did not pass.",
 	"Record.warning":       "A run-level warning, e.g. no response carried `envelope_ok`.",
 	"Record.seal":          "Checksum written with the record; commands refuse a record whose content no longer matches it.",
-	"Record.replay_of":     "On a `verify` replay: the safe spot's run id. `shrt diff <chain>` skips one recorded right after a run.",
+	"Record.replay_of":     "On a `verify` replay, the safe spot's run id.",
 	"Record.keep_going":    "True for a `-keep-going` run.",
 	"Record.kept_red":      "For a chain with `kept_red`: `as_pinned` (exit 0), `not_as_pinned` or `defect_gone` (exit 1).",
 	"Record.kept_red_note": "What `kept_red` found: the pins and what failed or held outside them.",
@@ -187,7 +187,7 @@ var notes = map[string]string{
 	"StepRecord.id":                "The step id.",
 	"StepRecord.call":              "As written in the chain.",
 	"StepRecord.procedure":         "The resolved `/package.Service/Rpc`.",
-	"StepRecord.status":            "`passed`, `failed`, `error`, or `skipped` (a dry-run step, or a `-keep-going` step held back behind one that did not pass).",
+	"StepRecord.status":            "`passed`, `failed`, `error` or `skipped`.",
 	"StepRecord.http_status":       "Transport status. 200 with a non-OK envelope code is an in-band refusal.",
 	"StepRecord.latency_ms":        "Wall time of the call.",
 	"StepRecord.latency_resent_ms": "Latencies of re-sends of a read that was slow against the safe spot's run.",
@@ -204,13 +204,13 @@ var notes = map[string]string{
 	"StepRecord.warning":           "Non-fatal runner note: stale descriptor, build change, an unasserted refusal.",
 	"StepRecord.note":              "Runner commentary, e.g. whether a login seeded a profile's token.",
 	"StepRecord.auth_retry":        "`resent`: answered unauthenticated, logged in again and re-sent. `not_resent`: a write that may have been performed was not re-sent.",
-	"StepRecord.first_attempt":     "A read's first answer when it was a server error: the read is re-sent once and judged on the answer; the failure stays a FINDING.",
-	"StepRecord.token_refused":     "Each token refused at this step: fingerprint, when issued, stated expiry, when refused. A cached token refused on first use is re-minted without a line; repeated early refusal is a `FINDING`.",
+	"StepRecord.first_attempt":     "A read's first answer when it was a server error; the re-send is judged.",
+	"StepRecord.token_refused":     "Each token refused at this step: fingerprint, issued, stated expiry, refused.",
 	"StepRecord.auth_profile":      "The profile whose token the step carried: `default`, a profile name, `invalid`, or `none`.",
 	"StepRecord.auth_principal":    "Digest of the account the profile logged in as, no secret in it; `verify` compares it.",
 	"StepRecord.volatile":          "Step-level volatile patterns.",
 	"StepRecord.unordered":         "The unordered lists the run applied to this step.",
-	"StepRecord.drift":             "With `validate_output` on, the response did not match its message: `failed`, and no expectation was evaluated. Rebuild the descriptor first.",
+	"StepRecord.drift":             "Under `validate_output`, the response did not match its message.",
 
 	"Pin.step": "The step the defect shows at.",
 	"Pin.path": "An expectation path of that step that must fail against an answered response; one entry per failing expectation.",
@@ -293,9 +293,8 @@ func render() ([]byte, error) {
 	undocumented = nil
 	var b strings.Builder
 	b.WriteString("# GRAMMAR — every key shrt accepts\n\n")
-	b.WriteString("Generated from the Go structs by `go run ./distill`; do not edit. The loaders reject unknown keys,\n")
-	b.WriteString("so a key not in this file does not exist: `unknown key \"expects\" at line 16 (did you mean \"expect\"?)`.\n")
-	b.WriteString("A `+` in the `req` column means the key is always written out (no `omitempty`).\n\n")
+	b.WriteString("Generated from the code by `go run ./distill`; do not edit. Loaders reject unknown keys, so a key\n")
+	b.WriteString("not here does not exist. `+` in `req`: the key is always written out.\n\n")
 
 	b.WriteString("## 1. Chain file — `.shrt/chains/<name>.yaml`\n\n")
 	table := func(heading string, v any) {
@@ -307,7 +306,6 @@ func render() ([]byte, error) {
 	table("\n### Expectation — exactly one rule per entry\n\n", chain.Expectation{})
 
 	b.WriteString("\n### What each rule actually does\n\n")
-	b.WriteString("Produced by evaluating each rule against a fixture response:\n\n")
 	rules, err := exerciseRules()
 	if err != nil {
 		return nil, err
@@ -319,14 +317,11 @@ func render() ([]byte, error) {
 	table("\n### `kept_red[]` — a known defect the chain pins\n\n", chain.Pin{})
 
 	b.WriteString("\n## 2. References — `${...}`\n\n")
-	b.WriteString("Resolved in `body`, `headers`, and an expectation's `equals`, `not_equal`, `contains` and numeric\n")
-	b.WriteString("bounds; never in `path`. A reference that is the whole value keeps its JSON type; inside a longer\n")
-	b.WriteString("string it is text, and only a scalar may be interpolated so. A reference that cannot resolve fails\n")
-	b.WriteString("the step, and one known not to resolve (a later or missing step, an unset `${env.*}`, a field the\n")
-	b.WriteString("producing message does not declare) is a lint error and refused before sending. There is no escape\n")
-	b.WriteString("for a literal `${`; pass such a value through `${env.NAME}` or `-var`. `${nowunix}` resolves to a\n")
-	b.WriteString("STRING of digits.\n\n")
-	b.WriteString("Produced by resolving each form against a fixture scope:\n\n")
+	b.WriteString("- Resolved in `body`, `headers`, and an expectation's `equals`, `not_equal`, `contains` and numeric bounds. Never in `path`.\n")
+	b.WriteString("- A whole-value reference keeps its JSON type; inside a longer string it is text, and only a scalar may be interpolated.\n")
+	b.WriteString("- One known not to resolve (a later or missing step, an unset `${env.*}`, an undeclared field) is a lint error.\n")
+	b.WriteString("- No escape for a literal `${`: pass it through `${env.NAME}` or `-var`.\n")
+	b.WriteString("- `${nowunix}` is a STRING of digits.\n\n")
 	refs, err := exerciseRefs()
 	if err != nil {
 		return nil, err
@@ -350,7 +345,6 @@ func render() ([]byte, error) {
 	table("\n### `latency`\n\n", config.Latency{})
 
 	b.WriteString("\n## 5. Run record — `.shrt/runs/<chain>/<run-id>.json`\n\n")
-	b.WriteString("The evidence file; the JSON names below are the ones in the file.\n\n")
 	writeJSONTable(&b, runner.Record{})
 	b.WriteString("\n### Each entry of `steps`\n\n")
 	writeJSONTable(&b, runner.StepRecord{})
@@ -358,12 +352,10 @@ func render() ([]byte, error) {
 	writeJSONTable(&b, chain.ExpectResult{})
 
 	b.WriteString("\n## 6. Safe spot — `.shrt/safespots/<chain>.json`\n\n")
-	b.WriteString("Written only by `shrt confirm <chain> -approve`. A proposal waits in\n")
-	b.WriteString("`.shrt/safespots/pending/<chain>.json` with its report beside it until approved or rejected.\n\n")
+	b.WriteString("Written only by `shrt confirm <chain> -approve`. A proposal waits in `.shrt/safespots/pending/<chain>.json`.\n\n")
 	writeJSONTable(&b, store.SafeSpot{})
 
 	b.WriteString("\n## 7. What `shrt verify` actually compares\n\n")
-	b.WriteString("Produced by running `diff.Compare` on a fabricated safe spot and replay:\n\n")
 	rep, err := exerciseDiff()
 	if err != nil {
 		return nil, err
@@ -371,7 +363,6 @@ func render() ([]byte, error) {
 	b.WriteString(rep)
 
 	b.WriteString("\n## 8. Closed vocabularies\n\n")
-	b.WriteString("Read from the constants themselves, so a renamed constant shows up here:\n\n")
 	b.WriteString("| where | allowed |\n|---|---|\n")
 	fmt.Fprintf(&b, "| chain `apiVersion` | `%s` |\n", chain.APIVersion)
 	fmt.Fprintf(&b, "| overlay `apiVersion` | `%s` |\n", contract.OverlayAPIVersion)
@@ -383,15 +374,11 @@ func render() ([]byte, error) {
 	fmt.Fprintf(&b, "| run record status | `%s`, `%s`, `%s` |\n", runner.StatusPassed, runner.StatusFailed, runner.StatusError)
 	fmt.Fprintf(&b, "| STEP status | the three above, plus `%s` |\n", runner.StatusSkipped)
 
-	b.WriteString("\n**`" + runner.StatusError + "`** means the step produced no answer to judge; usually nothing was sent. Read\n")
-	b.WriteString("the step's `error` before blaming the backend. **`" + runner.StatusSkipped + "`** is a step status only: a\n")
-	b.WriteString("dry-run step, or a `-keep-going` step held back behind one that did not pass. A step with\n")
-	b.WriteString("`\"drift\": true` is `" + runner.StatusFailed + "`: it was sent and answered, but did not match its message\n")
-	b.WriteString("under `validate_output`, so no expectation was evaluated; rebuild the descriptor before reading it\n")
-	b.WriteString("as a backend defect.\n")
+	b.WriteString("\n- `" + runner.StatusError + "`: no answer to judge, usually nothing sent. Read the step's `error` before blaming the backend.\n")
+	b.WriteString("- `" + runner.StatusSkipped + "`: a dry-run step, or a `-keep-going` step held back behind one that did not pass.\n")
+	b.WriteString("- `\"drift\": true` is `" + runner.StatusFailed + "`: answered, but not as its message under `validate_output`. Rebuild the descriptor first.\n")
 
 	b.WriteString("\n## 9. Commands\n\n")
-	b.WriteString("Captured by running the binary, so a renamed command cannot survive here:\n\n")
 	cli, err := exerciseCLI()
 	if err != nil {
 		return nil, err
@@ -399,11 +386,8 @@ func render() ([]byte, error) {
 	b.WriteString(cli)
 
 	b.WriteString("\n## 10. Volatile and redact patterns\n\n")
-	b.WriteString("Produced by running `pathmask.Match(pattern, path)`:\n\n")
 	b.WriteString(exerciseMasks())
-	b.WriteString("\nA `*` globs inside a segment and matching folds separators and case, so `**.*password` covers\n")
-	b.WriteString("`user_password` and `userPassword` alike. `**.` reaches any depth; without it a pattern matches\n")
-	b.WriteString("only that exact path.\n")
+	b.WriteString("\n`*` globs within a segment; `**.` reaches any depth. Matching folds case and separators.\n")
 	if len(undocumented) > 0 {
 		return nil, fmt.Errorf("%d key(s) or field(s) exist in code with no entry in distill/main.go's notes, so GRAMMAR.md would ship them undocumented: %s",
 			len(undocumented), strings.Join(undocumented, ", "))
@@ -518,8 +502,7 @@ func exerciseRules() (string, error) {
 		}
 		fmt.Fprintf(&b, "| %s | `%s` | %s |\n", c.label, detail, yesNo(r.Passed))
 	}
-	b.WriteString("\n`not_empty` is false for `0` and `[]`, so it cannot stand in for `exists`; an int64 `\"0\"` is zero. A\n")
-	b.WriteString("rule-less entry fails. Two rules on one entry are a lint error: write one rule per entry.\n\n")
+	b.WriteString("\nTwo rules on one entry are a lint error: write one rule per entry.\n\n")
 	b.WriteString(existsPresence())
 	return b.String(), nil
 }
@@ -547,22 +530,21 @@ func existsPresence() string {
 		{"`exists: false` on `user.name`, inside a message not sent", chain.Expectation{Path: "user.name", Exists: boolp(false)}},
 	}
 	var b strings.Builder
-	b.WriteString("`exists` reads what the server SENT, not the stored record, which holds every declared field at\n")
-	b.WriteString("its zero value. Below, the server sent `{\"error\": {...}}` and nothing else:\n\n")
+	b.WriteString("`exists` reads what the server SENT. Below, it sent `{\"error\": {...}}` and nothing else:\n\n")
 	b.WriteString("| expectation | rule fired | passes |\n|---|---|---|\n")
 	for _, c := range cases {
 		r := c.e.EvaluateIn(full, present)
 		fmt.Fprintf(&b, "| %s | `%s` | %s |\n", c.label, r.Rule, yesNo(r.Passed))
 	}
-	b.WriteString("\nA proto3 scalar without `optional` cannot tell unset from zero on the wire; assert the value. A field\n")
-	b.WriteString("inside a message the server did not send has no zero value: assert the message `exists: false`.\n")
+	b.WriteString("\nA proto3 scalar cannot tell unset from zero: assert the value. For a field inside a message not sent,\n")
+	b.WriteString("assert the message `exists: false`.\n")
 	return b.String()
 }
 
 func exerciseTransport() string {
 	var b strings.Builder
-	b.WriteString("A `" + chain.TransportPrefix + ".*` path reads the recorded transport result, not the body. It is the only\n")
-	b.WriteString("assertion that runs on a Connect error (HTTP 4xx/5xx); every other one is `unevaluated` and fails.\n\n")
+	b.WriteString("A `" + chain.TransportPrefix + ".*` path reads the transport result, not the body. On a Connect error (HTTP 4xx/5xx)\n")
+	b.WriteString("it is the only assertion that runs; the rest are `unevaluated` and fail.\n\n")
 	b.WriteString("| path | reads |\n|---|---|\n")
 	for _, p := range chain.TransportFieldNames() {
 		fmt.Fprintf(&b, "| `%s` | %s |\n", p, chain.TransportFields[strings.TrimPrefix(p, chain.TransportPrefix+".")])
@@ -694,22 +676,19 @@ func exerciseDiff() (string, error) {
 	fmt.Fprintf(&b, "| `seen` changed, NOT volatile, but both values are timestamps | %s |\n", yesNo(seen["a|seen"]))
 	fmt.Fprintf(&b, "| `lines` went from 2 items to 1 | %s |\n", yesNo(seen["a|lines"]))
 	fmt.Fprintf(&b, "| `qty` went from the STRING `\"1\"` to the NUMBER `1` | %s |\n", yesNo(seen["b|qty"]))
-	b.WriteString("\nBesides `volatile` paths, verify masks a changed value that is id- or timestamp-shaped on both\n")
-	b.WriteString("sides (same kind of id, same unit of time, within 400 days of its run), and a value that only\n")
-	fmt.Fprintf(&b, "echoes a fixture name or a `${uuid}` the chain sent; here %d value(s) were masked. A value lost\n", rep.Masked)
-	b.WriteString("under a volatile pattern (null, empty, gone) is still reported. `-masked` lists every masked value.\n")
-	b.WriteString("Ids are renamed consistently across the record, so a stale id is reported. A list declared\n")
-	b.WriteString("`unordered` is compared as a multiset. A value under a `redact` path is never compared. Before the\n")
-	b.WriteString("responses, verify compares what each step SENT and the chain itself with the safe spot's run: a\n")
-	b.WriteString("changed input gives `drift with different input`, a changed chain `drift after a chain change`, when\n")
-	b.WriteString("it explains every response change; anything else is a `regression`.\n")
+	b.WriteString("\n- Besides `volatile` paths, verify masks a value id- or timestamp-shaped on both sides (same kind of id, same unit,\n")
+	fmt.Fprintf(&b, "  within 400 days of its run) and a value echoing a fixture name or `${uuid}`; here %d value(s). `-masked` lists them.\n", rep.Masked)
+	b.WriteString("- A value lost under a volatile pattern (null, empty, gone) is still reported.\n")
+	b.WriteString("- Ids are renamed consistently across the record, so a stale id is reported.\n")
+	b.WriteString("- An `unordered` list is compared as a multiset; a `redact` path never.\n")
+	b.WriteString("- First it compares what each step SENT and the chain. A changed input that explains every response change is\n")
+	b.WriteString("  `drift with different input`, a changed chain `drift after a chain change`; anything else is a `regression`.\n")
 	fmt.Fprintf(&b, "\nChange kinds `shrt verify` and `shrt diff` print: `%s` (a path the baseline had is gone), `%s`\n", diff.KindMissing, diff.KindUnexpected)
 	fmt.Fprintf(&b, "(a path the baseline did not have), `%s` (same JSON type, different value), `%s` (different JSON\n", diff.KindChanged, diff.KindType)
 	fmt.Fprintf(&b, "type), `%s` (a list or the step count has a different number of items), `%s` (a step id or rpc\n", diff.KindLength, diff.KindOrder)
 	fmt.Fprintf(&b, "differs at that position), `%s` (the step's pass/fail status changed).\n", diff.KindStatus)
-	b.WriteString("Steps are paired by id, then by call and position, so a renamed or inserted step is one change.\n")
-	b.WriteString("References and paths are compared in one canonical spelling, so a field respelt in case, as its\n")
-	b.WriteString("JSON name or as `${steps.a.response.x}` for `${a.x}` is no change.\n")
+	b.WriteString("Steps pair by id, then by call and position: a renamed or inserted step is one change. A field respelt in\n")
+	b.WriteString("case, as its JSON name, or as `${steps.a.response.x}` for `${a.x}` is no change.\n")
 	return b.String(), nil
 }
 
@@ -725,9 +704,17 @@ func exerciseCLI() (string, error) {
 	if err != nil {
 		return "", err
 	}
+	var names []string
+	for _, line := range strings.Split(root, "\n") {
+		if m := commandLine.FindStringSubmatch(line); m != nil {
+			names = append(names, "`"+m[1]+"`")
+		}
+	}
 	var b strings.Builder
-	b.WriteString("```\n" + strings.TrimSpace(root) + "\n```\n\n")
-	b.WriteString("| group | subcommands |\n|---|---|\n")
+	b.WriteString("| command | subcommands |\n|---|---|\n")
+	if len(names) > 0 {
+		fmt.Fprintf(&b, "| `shrt` | %s |\n", strings.Join(names, ", "))
+	}
 	for _, group := range []string{"catalog", "chain", "contract"} {
 		out, err := runShrt(group)
 		if err != nil {
@@ -749,6 +736,8 @@ func exerciseCLI() (string, error) {
 }
 
 var goRunExit = regexp.MustCompile(`(?m)^exit status \d+\n?`)
+
+var commandLine = regexp.MustCompile(`^  ([a-z]+) {2,}\S`)
 
 func runShrt(args ...string) (string, error) {
 	full := append([]string{"run", "./cmd/shrt"}, args...)
