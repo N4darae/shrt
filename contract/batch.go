@@ -14,14 +14,8 @@ import (
 var perItemFailure = lazyRegexp(`(?i)\bon that (?:line|item|entry)\b|\b(?:line|item|entry) (?:only|alone)\b|\bper[- ](?:line|item|entry)\b|\bindependently\b|\bthe others? (?:still )?(?:appl|succeed|go through)`)
 
 func (p *Plan) probeBatch(lib *Library, isTarget func(*chain.Step) bool) {
-	for _, st := range append([]*chain.Step{}, p.Chain.Steps...) {
-		if !isTarget(st) || chain.IsReadOnlyCall(st.Call) {
-			continue
-		}
-		c, m, ok := p.contractOf(lib, st.Call)
-		if !ok {
-			continue
-		}
+	for st := range p.contracted(lib, isTarget, isRead) {
+		c, m, _ := p.contractOf(lib, st.Call)
 		if results, listPath, verdict := p.perItemResults(lib, st.Call, c, m); results != nil {
 			p.addPartialBatch(lib, st, c, m, results, listPath, verdict)
 		}

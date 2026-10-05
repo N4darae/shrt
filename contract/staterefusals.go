@@ -86,14 +86,8 @@ func probeable(f Failure) bool {
 }
 
 func (p *Plan) probeStateRefusals(lib *Library, isTarget func(*chain.Step) bool) {
-	for _, st := range append([]*chain.Step{}, p.Chain.Steps...) {
-		if !isTarget(st) || p.isLogin(st.Call) {
-			continue
-		}
-		c, m, ok := p.contractOf(lib, st.Call)
-		if !ok {
-			continue
-		}
+	for st := range p.contracted(lib, isTarget, p.loginStep) {
+		c, m, _ := p.contractOf(lib, st.Call)
 		for _, e := range p.entityStates(st, c) {
 			values := e.state.EnumValues[1:]
 			short := enumShort(e.state.EnumValues)

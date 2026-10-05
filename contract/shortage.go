@@ -115,10 +115,7 @@ func (p *Plan) shortageQuantity(lib *Library, body map[string]any, path string) 
 }
 
 func (p *Plan) probeExactStock(lib *Library, isTarget func(*chain.Step) bool) {
-	for _, st := range append([]*chain.Step{}, p.Chain.Steps...) {
-		if !isTarget(st) || effectOutcome(st) != outcomeSuccess {
-			continue
-		}
+	for st := range p.targets(isTarget, unsuccessful) {
 		if m, f, ok := p.shortageFailure(lib, st); ok {
 			p.addExactStockProbe(lib, st, m, f)
 		}

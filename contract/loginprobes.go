@@ -19,10 +19,7 @@ var (
 )
 
 func (p *Plan) probeLogin(lib *Library, isTarget func(*chain.Step) bool) {
-	for _, st := range append([]*chain.Step{}, p.Chain.Steps...) {
-		if !isTarget(st) || !p.isLogin(st.Call) {
-			continue
-		}
+	for st := range p.targets(isTarget, func(st *chain.Step) bool { return !p.isLogin(st.Call) }) {
 		m, err := p.cat.Lookup(st.Call)
 		if err != nil {
 			continue

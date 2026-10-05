@@ -81,14 +81,8 @@ func exactText(n int, unique bool) (string, bool) {
 }
 
 func (p *Plan) probeTextLength(lib *Library, isTarget func(*chain.Step) bool) {
-	for _, st := range append([]*chain.Step{}, p.Chain.Steps...) {
-		if !isTarget(st) || chain.IsReadOnlyCall(st.Call) || p.isLogin(st.Call) {
-			continue
-		}
-		c, m, ok := p.contractOf(lib, st.Call)
-		if !ok {
-			continue
-		}
+	for st := range p.contracted(lib, isTarget, isRead, p.loginStep) {
+		c, m, _ := p.contractOf(lib, st.Call)
 		car := singleCarrier(m)
 		if car == nil {
 			continue

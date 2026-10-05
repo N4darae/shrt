@@ -60,10 +60,7 @@ func (p *Plan) sentLists(st *chain.Step) []itemList {
 
 func (p *Plan) probeItemCounts(lib *Library, isTarget func(*chain.Step) bool) {
 	thirds := map[string]string{}
-	for _, st := range append([]*chain.Step{}, p.Chain.Steps...) {
-		if !isTarget(st) || chain.IsReadOnlyCall(st.Call) || p.isLogin(st.Call) {
-			continue
-		}
+	for st := range p.targets(isTarget, isRead, p.loginStep) {
 		il, ok := p.itemListOf(st)
 		if !ok {
 			for _, src := range referencedSteps(st.Body) {

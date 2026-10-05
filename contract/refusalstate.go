@@ -76,10 +76,7 @@ func quantityPaths(body map[string]any, fields []*catalog.Field) []string {
 }
 
 func (p *Plan) probeInsufficiency(lib *Library, isTarget func(*chain.Step) bool) {
-	for _, st := range append([]*chain.Step{}, p.Chain.Steps...) {
-		if !isTarget(st) {
-			continue
-		}
+	for st := range p.targets(isTarget) {
 		if m, f, ok := p.shortageFailure(lib, st); ok {
 			p.addInsufficiencyProbe(lib, st, m, f)
 		}

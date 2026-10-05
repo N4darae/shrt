@@ -2,6 +2,7 @@ package contract
 
 import (
 	"fmt"
+	"iter"
 	"slices"
 	"sort"
 	"strconv"
@@ -495,6 +496,36 @@ func (p *Plan) contractOf(lib *Library, call string) (*RPCContract, *catalog.Met
 	m, err := p.cat.Lookup(call)
 	return c, m, ok && err == nil
 }
+
+func (p *Plan) targets(isTarget func(*chain.Step) bool, skips ...func(*chain.Step) bool) iter.Seq[*chain.Step] {
+	return func(yield func(*chain.Step) bool) {
+		for _, st := range slices.Clone(p.Chain.Steps) {
+			if isTarget(st) && !slices.ContainsFunc(skips, func(skip func(*chain.Step) bool) bool { return skip(st) }) && !yield(st) {
+				return
+			}
+		}
+	}
+}
+
+func (p *Plan) contracted(lib *Library, isTarget func(*chain.Step) bool, skips ...func(*chain.Step) bool) iter.Seq[*chain.Step] {
+	return func(yield func(*chain.Step) bool) {
+		for st := range p.targets(isTarget, skips...) {
+			if _, _, ok := p.contractOf(lib, st.Call); ok && !yield(st) {
+				return
+			}
+		}
+	}
+}
+
+func isRead(st *chain.Step) bool { return chain.IsReadOnlyCall(st.Call) }
+
+func isWrite(st *chain.Step) bool { return !chain.IsReadOnlyCall(st.Call) }
+
+func skipsAuth(st *chain.Step) bool { return st.SkipAuth }
+
+func unsuccessful(st *chain.Step) bool { return effectOutcome(st) != outcomeSuccess }
+
+func (p *Plan) loginStep(st *chain.Step) bool { return p.isLogin(st.Call) }
 
 func canonicalCall(cat *catalog.Catalog, call string) string {
 	if m, err := cat.Lookup(call); err == nil {

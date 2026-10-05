@@ -17,10 +17,7 @@ var (
 )
 
 func (p *Plan) probeIdempotency(lib *Library, isTarget func(*chain.Step) bool) {
-	for _, st := range append([]*chain.Step{}, p.Chain.Steps...) {
-		if !isTarget(st) || chain.IsReadOnlyCall(st.Call) {
-			continue
-		}
+	for st := range p.targets(isTarget, isRead) {
 		m, err := p.cat.Lookup(st.Call)
 		if err != nil {
 			continue

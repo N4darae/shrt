@@ -160,14 +160,8 @@ var largeQuantities = []int64{1250, largeValue}
 
 func (p *Plan) probeBoundaries(lib *Library, isTarget func(*chain.Step) bool) {
 	rules := p.effectRules(lib)
-	for _, st := range append([]*chain.Step{}, p.Chain.Steps...) {
-		if !isTarget(st) || chain.IsReadOnlyCall(st.Call) {
-			continue
-		}
-		c, m, ok := p.contractOf(lib, st.Call)
-		if !ok {
-			continue
-		}
+	for st := range p.contracted(lib, isTarget, isRead) {
+		c, m, _ := p.contractOf(lib, st.Call)
 		said := []string{}
 		quantities, unbounded := []string{}, []string{}
 		rpc := canonicalCall(p.cat, st.Call)

@@ -28,14 +28,8 @@ type shapeCase struct {
 }
 
 func (p *Plan) probeShapes(lib *Library, isTarget func(*chain.Step) bool) {
-	for _, st := range append([]*chain.Step{}, p.Chain.Steps...) {
-		if !isTarget(st) || p.isLogin(st.Call) {
-			continue
-		}
-		c, m, ok := p.contractOf(lib, st.Call)
-		if !ok {
-			continue
-		}
+	for st := range p.contracted(lib, isTarget, p.loginStep) {
+		c, m, _ := p.contractOf(lib, st.Call)
 		fields := catalog.DescribeMessage(m.Input()).Fields
 		covered := map[string]bool{}
 		declared := false

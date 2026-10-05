@@ -67,10 +67,7 @@ func (p *Plan) probeDenials(lib *Library, isTarget func(*chain.Step) bool) {
 		return
 	}
 	tokenDone := map[string]bool{}
-	for _, st := range append([]*chain.Step{}, p.Chain.Steps...) {
-		if !isTarget(st) || p.isLogin(st.Call) || st.SkipAuth {
-			continue
-		}
+	for st := range p.targets(isTarget, p.loginStep, skipsAuth) {
 		m, err := p.cat.Lookup(st.Call)
 		if err != nil {
 			continue
