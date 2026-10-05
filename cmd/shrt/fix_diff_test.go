@@ -68,6 +68,10 @@ func TestCLIDiffOfRunsAndReplays(t *testing.T) {
 			t.Errorf("diff -step: want %q: %v\n%s", want, err, out)
 		}
 	}
+	writeFile(t, ".shrt/scratch/thing.yaml", string(mustRead(t, ".shrt/chains/cli-thing-flow.yaml")))
+	if out, err = fixCmd(t, "diff", ".shrt/scratch/thing.yaml", "-step", st.ID); err != nil || !strings.Contains(out, "response "+resp.String()+"\n") {
+		t.Errorf("diff -step takes a chain file's path, as a repro: line prints it, and reads that chain's runs: %v\n%s", err, out)
+	}
 	last := rec.Steps[len(rec.Steps)-1]
 	out, err = fixCmd(t, "diff", "cli-thing-flow", "-step", st.ID+","+last.ID)
 	if err != nil || !strings.Contains(out, "response "+resp.String()+"\n") || strings.Count(out, " in run "+rec.RunID+"\n") != 2 {

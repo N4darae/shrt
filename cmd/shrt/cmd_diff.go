@@ -27,7 +27,8 @@ func init() {
 
 const diffUsage = "usage: shrt diff <run-a> <run-b>\n" +
 	"       shrt diff <chain> <run-a> <run-b>   run ids, 'latest', or 'latest~N' (N runs before latest)\n" +
-	"       shrt diff <chain>                   the latest run, skipping a verify replay recorded right after a run, vs the latest earlier one that is not a replay"
+	"       shrt diff <chain>                   the latest run, skipping a verify replay recorded right after a run, vs the latest earlier one that is not a replay\n" +
+	"       shrt diff <chain> -step <id>        that step of the latest run as recorded; <chain> may be the path a repro: line prints"
 
 func runDiff(ctx context.Context, args []string) error {
 	err := compareRuns(ctx, args)
@@ -56,6 +57,9 @@ func compareRuns(_ context.Context, args []string) error {
 	e, err := loadEnv(false)
 	if err != nil {
 		return &exitError{code: 1, err: err}
+	}
+	if len(rest) > 0 {
+		rest[0] = chainNameAt(rest[0])
 	}
 	if len(rest) == 1 || len(rest) == 3 || *step != "" && len(rest) == 2 {
 		if err := e.knownChain(rest[0]); err != nil {
