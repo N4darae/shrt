@@ -165,7 +165,7 @@ func loadVerifySpot(e *env, name string) (*store.SafeSpot, string, error) {
 		if c, cerr := chain.Resolve(e.chainsDir(), name); cerr == nil && len(c.KeptRed) > 0 {
 			return nil, "", fmt.Errorf("chain %s is kept red on purpose, so it has no safe spot by design: shrt gate compares its pins; check it with 'shrt run %s'", name, name)
 		}
-		err = fmt.Errorf("%w\nno safe spot yet — run the chain, check the responses, propose it with 'shrt confirm %s -note \"...\"', and a person approves it", err, name)
+		err = fmt.Errorf("%w\nno safe spot yet: once its responses are right, propose one (shrt confirm %s -note \"...\") for a person to approve", err, name)
 		if missing {
 			err = noSpotError{err}
 		}
@@ -1238,14 +1238,23 @@ func verifyVerdict(e *env, name string, rec *runner.Record, report *diff.Report,
 }
 
 func suspectLines(e *env, rec *runner.Record, r reason, step, path string, sent bool) (string, string) {
-	more := ""
+	more, suspect := "", r.in(said{head: &gateItem{Step: step}})
 	if req := requestLine(r, step, recordSent(e, rec)); req != "" && sent {
-		more += "  " + req + "\n"
+		more += "  " + ownRequest(req, step, suspect) + "\n"
 	}
 	if hint := tellApart(e, r, path); hint != "" {
 		more += "  " + hint + "\n"
 	}
-	return r.in(said{head: &gateItem{Step: step}}), more
+	return suspect, more
+}
+
+func ownRequest(req, step, suspect string) string {
+	at, body, ok := strings.Cut(req, " sent ")
+	as, own := strings.CutPrefix(at, step)
+	if !ok || !own || as != "" && (!strings.HasPrefix(as, " ") || !strings.HasSuffix(suspect, as)) {
+		return req
+	}
+	return "sent " + body
 }
 
 func otherRoots(items []gateItem, first *diff.Change) string {
@@ -1266,7 +1275,7 @@ func otherRoots(items []gateItem, first *diff.Change) string {
 			continue
 		}
 		seen[r], seen[same] = true, true
-		out += joined(fmt.Sprintf("  also: %s (%s) %s", it.Step, chain.RPCName(it.Call), it.headline()), it.Reason.String()) + "\n"
+		out += joined(fmt.Sprintf("  also: %s (%s) %s", it.Step, chain.RPCName(it.Call), it.headline()), it.Reason.in(said{head: &it})) + "\n"
 	}
 	return out
 }

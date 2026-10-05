@@ -529,9 +529,9 @@ func (r *RunReport) Text() string {
 	if parts := r.varChanges(false); len(parts) > 0 {
 		fmt.Fprintf(&b, "the runs used different vars, so a difference may come from the input rather than the backend: %s\n", strings.Join(parts, "; "))
 	}
-	if r.FirstFailureA != r.FirstFailureB {
+	if r.FirstFailureA != r.FirstFailureB && !r.firstFailureListed() {
 		fmt.Fprintf(&b, "first failing step moved: A %s, B %s\n", cmp.Or(r.FirstFailureA, "none"), cmp.Or(r.FirstFailureB, "none"))
-	} else if r.FirstFailureA != "" {
+	} else if r.FirstFailureA == r.FirstFailureB && r.FirstFailureA != "" {
 		how := ""
 		switch {
 		case len(r.FailingA) == 0 && len(r.FailingB) == 0:
@@ -543,17 +543,39 @@ func (r *RunReport) Text() string {
 			how = ", failing differently"
 		}
 		fmt.Fprintf(&b, "first failing step unchanged: %s%s\n", r.FirstFailureA, how)
-		for _, line := range r.FailingA {
-			fmt.Fprintf(&b, "  A: %s\n", line)
-		}
-		for _, line := range r.FailingB {
-			fmt.Fprintf(&b, "  B: %s\n", line)
+		if slices.Equal(r.FailingA, r.FailingB) {
+			for _, line := range r.FailingA {
+				fmt.Fprintf(&b, "  %s\n", line)
+			}
+		} else {
+			for _, line := range r.FailingA {
+				fmt.Fprintf(&b, "  A: %s\n", line)
+			}
+			for _, line := range r.FailingB {
+				fmt.Fprintf(&b, "  B: %s\n", line)
+			}
 		}
 	}
 	if len(r.StatusChanges) > 0 {
 		b.WriteString("step status changes (A -> B):\n")
+		var moves []string
+		stepsOf := map[string][]string{}
 		for _, s := range r.StatusChanges {
-			fmt.Fprintf(&b, "  %s  %s -> %s%s\n", s.Step, s.A, s.B, s.errors())
+			if s.errors() == "" {
+				move := s.A + " -> " + s.B
+				if stepsOf[move] == nil {
+					moves = append(moves, move)
+				}
+				stepsOf[move] = append(stepsOf[move], s.Step)
+			}
+		}
+		for _, move := range moves {
+			fmt.Fprintf(&b, "  %s: %s\n", move, strings.Join(stepsOf[move], ", "))
+		}
+		for _, s := range r.StatusChanges {
+			if s.errors() != "" {
+				fmt.Fprintf(&b, "  %s  %s -> %s%s\n", s.Step, s.A, s.B, s.errors())
+			}
 		}
 	}
 	timedOutA, timedOutB := map[string]string{}, map[string]string{}
@@ -608,12 +630,23 @@ func (r *RunReport) Text() string {
 	}
 	if len(r.Changes) > 0 {
 		fmt.Fprintf(&b, "%d response difference(s) in steps both runs reached:\n", len(r.Changes))
+		var lines []string
+		stepsOf := map[string][]string{}
 		for _, c := range r.Changes {
 			detail := ""
 			if c.Detail != "" && c.Detail != VolatileFailed {
 				detail = " (" + c.Detail + ")"
 			}
-			fmt.Fprintf(&b, "  [%s] %s %s %s%s\n", c.Step, c.Kind, c.Path, r.describe(c), detail)
+			line := fmt.Sprintf("%s %s %s%s", c.Kind, c.Path, r.describe(c), detail)
+			if stepsOf[line] == nil {
+				lines = append(lines, line)
+			}
+			if !slices.Contains(stepsOf[line], c.Step) {
+				stepsOf[line] = append(stepsOf[line], c.Step)
+			}
+		}
+		for _, line := range lines {
+			fmt.Fprintf(&b, "  [%s] %s\n", strings.Join(stepsOf[line], ", "), line)
 		}
 	}
 	if len(r.UndeclaredUnknown) > 0 {
@@ -627,6 +660,14 @@ func (r *RunReport) Text() string {
 		fmt.Fprintf(&b, "not counted: %d (-masked lists them)\n", n)
 	}
 	return strings.TrimRight(b.String(), "\n")
+}
+
+func (r *RunReport) firstFailureListed() bool {
+	if len(r.StatusChanges) == 0 || r.FirstFailureA != "" && r.FirstFailureB != "" {
+		return false
+	}
+	first := r.StatusChanges[0]
+	return first.Step == r.FirstFailureA+r.FirstFailureB && first.errors() == ""
 }
 
 func runLabel(side, selector, id, status string) string {

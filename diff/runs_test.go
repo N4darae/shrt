@@ -261,3 +261,28 @@ func TestAFailureDifferingOnlyByTheIdsEachRunGeneratedIsTheSame(t *testing.T) {
 		t.Fatal("the same failure with each run's own ids fails alike; a got that is not the other run's renamed id does not")
 	}
 }
+
+func TestADiffSaysEachChangeOnceAcrossTheStepsItHits(t *testing.T) {
+	rep := &diff.RunReport{Chain: "thing-flow", RunA: "a", RunB: "b", StatusA: runner.StatusPassed, StatusB: runner.StatusFailed,
+		FirstFailureB: "create",
+		StatusChanges: []diff.StepStatus{{Step: "create", A: "passed", B: "failed"}, {Step: "fetch", A: "passed", B: "failed"}},
+		Changes: []diff.Change{
+			{Step: "create", Path: "total", Kind: diff.KindChanged, Want: "750", Got: "751"},
+			{Step: "fetch", Path: "total", Kind: diff.KindChanged, Want: "750", Got: "751"},
+			{Step: "fetch", Path: "name", Kind: diff.KindChanged, Want: "a", Got: "b"},
+		}}
+	got := rep.Text()
+	for _, want := range []string{"  passed -> failed: create, fetch\n", "  [create, fetch] changed total a=750 b=751\n", "  [fetch] changed name a=a b=b"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("want %q in:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "first failing step moved") {
+		t.Errorf("the status changes already name the first failing step:\n%s", got)
+	}
+	rep = &diff.RunReport{Chain: "thing-flow", RunA: "a", RunB: "b", FirstFailureA: "fetch", FirstFailureB: "fetch", FailingAlike: true,
+		FailingA: []string{"total want=750 got=751"}, FailingB: []string{"total want=750 got=751"}}
+	if got := rep.Text(); !strings.Contains(got, "failing the same way in both\n  total want=750 got=751") || strings.Contains(got, "A: ") {
+		t.Errorf("one failure said once when both runs fail alike:\n%s", got)
+	}
+}

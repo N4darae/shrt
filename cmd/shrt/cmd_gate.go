@@ -1546,8 +1546,13 @@ var verifyChangeLine = regexp.MustCompile(`^\[([^\]]+)\] +(\S+) +(\S+)`)
 func changeLines(stdout string) []string {
 	var out []string
 	for _, l := range strings.Split(stdout, "\n") {
-		if rest, ok := strings.CutPrefix(l, "  ["); ok {
-			out = append(out, "["+rest)
+		rest, ok := strings.CutPrefix(l, "  [")
+		if !ok {
+			continue
+		}
+		steps, tail, _ := strings.Cut(rest, "]")
+		for _, step := range strings.Split(steps, ", ") {
+			out = append(out, "["+step+"]"+tail)
 		}
 	}
 	return out

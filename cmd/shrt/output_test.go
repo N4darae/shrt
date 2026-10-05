@@ -240,7 +240,7 @@ func TestRunPrintsWhatItDidNotRun(t *testing.T) {
 			[]string{"not run: 2 later steps (fetch, fetch_again); -keep-going runs them"}, nil, nil},
 		{"-keep-going leaves no step unrun", thing, threeStepFlow, []string{"cli-thing-flow", "-quiet", "-keep-going"}, 1, nil, []string{"not run:"}, nil},
 		{"-keep-going prints only the failures, a group per cause and a passed count", thing, keepGoingFlow, []string{"cli-keep-going", "-keep-going"}, 1,
-			[]string{"FAIL   2 create_bad", "3 steps unevaluated behind create_bad: fetch_compared answered id=", "2 steps passed\n", "-keep-going: 4 of 6 steps did not pass\n"},
+			[]string{"FAIL   2 create_bad", "3 steps unevaluated behind create_bad: fetch_compared answered id=", "2 steps passed\n", "-keep-going: 4 of 6 steps did not pass: create_bad, "},
 			[]string{"ok     1 create", "fetch_bad ", "not evaluated", "not sent:"}, nil},
 		{"-keep-going -v prints every step instead of the counts", thing, keepGoingFlow, []string{"cli-keep-going", "-keep-going", "-v"}, 1,
 			[]string{"ok     1 create", "SKIP   3 fetch_bad", "not evaluated: ${create_bad.id}"}, []string{"unevaluated behind", "steps passed"}, nil},

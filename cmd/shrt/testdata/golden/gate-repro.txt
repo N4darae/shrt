@@ -16,8 +16,7 @@ FAIL   3 get_product              GetProduct DUR
 
 run .shrt/runs/shelf-slice-get_product/RUNID.json
 shelf-slice-get_product: FAILED in DUR
-  did not pass: get_product
-  -keep-going: 1 of 4 steps did not pass
+  -keep-going: 1 of 4 steps did not pass: get_product
   suspect write add_stock (AddStock): answered qty_on_hand=5, but GetProduct read 0
   add_stock sent {"id_product":"prd-0008","qty":"5"}
 
@@ -39,8 +38,7 @@ FAIL   3 get_product              GetProduct DUR
 
 run .shrt/runs/shelf-slice-get_product/RUNID.json
 shelf-slice-get_product: FAILED in DUR
-  did not pass: get_product
-  -keep-going: 1 of 4 steps did not pass
+  -keep-going: 1 of 4 steps did not pass: get_product
   suspect read get_product (GetProduct): answers product.qty_on_hand unlike what AddStock returned
   get_product sent {"id_product":"prd-0015"}
 

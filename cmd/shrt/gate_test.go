@@ -6,6 +6,7 @@ import (
 	"errors"
 	"flag"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -345,5 +346,13 @@ func TestVerifyOfARecordedRunOfAChainWithoutASafeSpotListsItsFailedExpectations(
 	out = captureStdout(t, func() { err = runVerify(context.Background(), []string{"cli-two-defects", "-run", "latest", "-json"}) })
 	if err == nil || !strings.Contains(err.Error(), "has no safe spot") || out != "" {
 		t.Fatalf("-json has no diff to emit, so it stays the error (%v):\n%s", err, out)
+	}
+}
+
+func TestTheGateReadsAFoldedVerifyLineAsOneChangePerStep(t *testing.T) {
+	got := changeLines("x: DRIFT\n  [a, b] changed total want=1 got=2\n  [c..d] not_reached 2 steps, not sent\n")
+	want := []string{"[a] changed total want=1 got=2", "[b] changed total want=1 got=2", "[c..d] not_reached 2 steps, not sent"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("got %q", got)
 	}
 }

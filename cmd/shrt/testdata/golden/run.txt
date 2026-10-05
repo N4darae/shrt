@@ -31,15 +31,13 @@ FAIL  10 cancel_confirmed         CancelOrder DUR
 
 run .shrt/runs/probe-orders/RUNID.json
 probe-orders: FAILED in DUR
-  suspect write cancel_confirmed (CancelOrder)
-  cancel_confirmed sent {"id_order":"ord-0024"}
+  suspect write cancel_confirmed (CancelOrder), sent {"id_order":"ord-0024"}
 pin it: shrt chain pin probe-orders
 
 $ shrt run probe-orders -quiet  [exit 1]
 probe-orders: FAILED in DUR
   step "cancel_confirmed": expectation failed: status.code want=SUCCESS got=REJECTED (message="StillConfirmed")
-  suspect write cancel_confirmed (CancelOrder)
-  cancel_confirmed sent {"id_order":"ord-0029"}
+  suspect write cancel_confirmed (CancelOrder), sent {"id_order":"ord-0029"}
   run .shrt/runs/probe-orders/RUNID.json
 pin it: shrt chain pin probe-orders
 
@@ -49,8 +47,7 @@ repeat 2 of 2: run RUNID failed at cancel_confirmed, as run 1
 reproduced 2/2: cancel_confirmed failed the same way in every run
   cancel_confirmed (CancelOrder): answered status.code "REJECTED" message="StillConfirmed"
     failed: status.code want=SUCCESS got=REJECTED
-  suspect write cancel_confirmed (CancelOrder)
-  cancel_confirmed sent {"id_order":"ord-0034"}
+  suspect write cancel_confirmed (CancelOrder), sent {"id_order":"ord-0034"}
   runs RUNID, RUNID in .shrt/runs/probe-orders
 exit 0: reproduced 2/2
 

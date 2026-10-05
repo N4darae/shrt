@@ -106,10 +106,13 @@ func TestCLIDiffOfRunsAndReplays(t *testing.T) {
 	if exitCodeOf(err) != 1 {
 		t.Fatalf("runs that differ exit 1, got %v\n%s", err, out)
 	}
-	for _, want := range []string{"fetch", "passed -> failed", "first failing step moved", "a=widget b=gadget"} {
+	for _, want := range []string{"passed -> failed: fetch", "a=widget b=gadget"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("diff output lacks %q:\n%s", want, out)
 		}
+	}
+	if strings.Contains(out, "first failing step moved") {
+		t.Errorf("the status change already names the first failing step:\n%s", out)
 	}
 	if strings.Contains(out, "thing-2") || strings.Contains(out, "thing-3") {
 		t.Errorf("ids differ every run and must be masked:\n%s", out)

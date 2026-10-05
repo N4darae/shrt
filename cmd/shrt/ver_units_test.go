@@ -208,7 +208,7 @@ func TestAKeepGoingRunNamesEachDistinctSuspectMostFailingStepsFirst(t *testing.T
 	}
 	rec.Status, rec.KeepGoing = runner.StatusFailed, true
 	lines := failureRequests(nil, rec, false)
-	if len(lines) != 4 || !strings.HasPrefix(lines[0], "suspect write create (") || !strings.HasPrefix(lines[2], "suspect read list_cancelled (") {
+	if len(lines) != 3 || lines[0] != `suspect write create (CreateProduct), sent {"n":1}` || !strings.HasPrefix(lines[1], "suspect read list_cancelled (") {
 		t.Fatalf("one line per distinct suspect, the one behind most failing steps first, got %q", lines)
 	}
 	if failureRequests(nil, rec, true) != nil {

@@ -665,12 +665,18 @@ func runSummary(e *env, rec *runner.Record, dry, stepsShown bool, lead string, f
 	if rec.Build != "" {
 		fmt.Fprintf(&b, "\n  build: %s at %s", rec.Build, rec.Target)
 	}
-	if len(rec.FailedSteps) > 0 {
-		fmt.Fprintf(&b, "\n  did not pass: %s", chain.ListSome(rec.FailedSteps, 10))
-	}
 	failure := rec.Failure
 	if stepsShown {
 		failure = notAbove(failure)
+	}
+	if len(rec.FailedSteps) > 0 {
+		head, rest, _ := strings.Cut(failure, "\n")
+		if strings.HasSuffix(head, " did not pass") {
+			fmt.Fprintf(&b, "\n  %s: %s", head, chain.ListSome(rec.FailedSteps, 10))
+			failure = rest
+		} else {
+			fmt.Fprintf(&b, "\n  did not pass: %s", chain.ListSome(rec.FailedSteps, 10))
+		}
 	}
 	if failure != "" {
 		fmt.Fprintf(&b, "\n  %s", strings.ReplaceAll(failure, "\n", "\n  "))
@@ -748,7 +754,7 @@ func failureRequests(e *env, rec *runner.Record, dry bool) []string {
 		if len(lines[key]) == 0 || !named[key] && f.r.Kind != "" {
 			lines[key], named[key], hints[key] = nil, f.r.Kind != "", tellApart(e, f.r, f.path)
 			if req := requestLine(f.r, f.st.ID, recordSent(e, rec)); req != "" {
-				lines[key] = append(slices.DeleteFunc([]string{f.r.String()}, func(s string) bool { return s == "" }), req)
+				lines[key] = suspectSent(f.r, req)
 			}
 		}
 		count[key]++
@@ -765,6 +771,19 @@ func failureRequests(e *env, rec *runner.Record, dry bool) []string {
 		out = append(out, hint)
 	}
 	return out
+}
+
+func suspectSent(r reason, req string) []string {
+	who := r.String()
+	if who == "" {
+		return []string{req}
+	}
+	at, body, ok := strings.Cut(req, " sent ")
+	as, own := strings.CutPrefix(at, r.Step)
+	if r.Kind == reasonWrite && ok && own && (as == "" || strings.HasPrefix(as, " ")) && strings.HasSuffix(who, as) {
+		return []string{who + ", sent " + body}
+	}
+	return []string{who, req}
 }
 
 func quietlyGreen(rec *runner.Record) bool {
