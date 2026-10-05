@@ -335,29 +335,12 @@ func readStream(r io.Reader, want int) (*Result, error) {
 	return done(), nil
 }
 
+var connectStatuses = map[string]int{"canceled": 499, "invalid_argument": http.StatusBadRequest, "failed_precondition": http.StatusBadRequest,
+	"out_of_range": http.StatusBadRequest, "deadline_exceeded": http.StatusGatewayTimeout, "not_found": http.StatusNotFound,
+	"already_exists": http.StatusConflict, "aborted": http.StatusConflict, "permission_denied": http.StatusForbidden,
+	"resource_exhausted": http.StatusTooManyRequests, "unimplemented": http.StatusNotImplemented,
+	"unavailable": http.StatusServiceUnavailable, "unauthenticated": http.StatusUnauthorized}
+
 func connectStatus(code string) int {
-	switch code {
-	case "canceled":
-		return 499
-	case "invalid_argument", "failed_precondition", "out_of_range":
-		return http.StatusBadRequest
-	case "deadline_exceeded":
-		return http.StatusGatewayTimeout
-	case "not_found":
-		return http.StatusNotFound
-	case "already_exists", "aborted":
-		return http.StatusConflict
-	case "permission_denied":
-		return http.StatusForbidden
-	case "resource_exhausted":
-		return http.StatusTooManyRequests
-	case "unimplemented":
-		return http.StatusNotImplemented
-	case "unavailable":
-		return http.StatusServiceUnavailable
-	case "unauthenticated":
-		return http.StatusUnauthorized
-	default:
-		return http.StatusInternalServerError
-	}
+	return cmp.Or(connectStatuses[code], http.StatusInternalServerError)
 }
