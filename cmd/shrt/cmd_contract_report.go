@@ -50,9 +50,8 @@ func contractStatus(args []string) error {
 	if _, err := parseArgs(fs, args); err != nil {
 		return err
 	}
-	if !contract.ValidPhase(*phase) {
-		return fmt.Errorf("unknown -phase %q, want %s, %s or %s",
-			*phase, contract.PhaseHappy, contract.PhaseFailure, contract.PhaseAll)
+	if err := contract.CheckPhase(*phase); err != nil {
+		return err
 	}
 	e, lib, err := loadLibrary()
 	if err != nil {
@@ -160,61 +159,44 @@ func contractStatus(args []string) error {
 	} else {
 		fmt.Println("\nwhat each column counts, and how GAPS and SCORE are scored: shrt contract status -v")
 	}
-	one, same, repeat := 0, 0, 0
+	counts := map[string]int{}
 	for _, r := range contract.SingleItemRepeats(chains, e.cat) {
 		switch {
 		case r.NoRepeat:
-			repeat++
+			counts["no repeat"]++
 		case r.SameResource:
-			same++
+			counts["same resource"]++
 		default:
-			one++
+			counts["one item"]++
 		}
 	}
-	if one > 0 {
-		fmt.Printf("\n%d repeated request field(s) are sent with at most one item by every chain that sends them, "+
-			"so per-item logic goes untested: shrt contract status -gaps lists them as 'one item'\n", one)
-	}
-	if same > 0 {
-		fmt.Printf("\n%d repeated request field(s) are sent with two or more items only when every item points at the same "+
-			"resource, so per-item logic that reads each item's own resource goes untested: shrt contract status -gaps lists them as 'same resource'\n", same)
-	}
-	if repeat > 0 {
-		fmt.Printf("\n%d repeated request field(s) are never sent with one resource on two applied items, so logic that merges, "+
-			"deduplicates or counts once per resource goes untested: shrt contract status -gaps lists them as 'no repeat'\n", repeat)
-	}
-	unchained, unstated, roleGaps, tokenGaps, parityGaps := 0, 0, 0, 0, 0
 	for _, r := range rows {
-		unchained += len(r.NoChain)
-		unstated += len(r.StateGaps)
+		counts["no chain"] += len(r.NoChain)
+		counts["no state"] += len(r.StateGaps)
 		for _, g := range r.ProbeGaps {
-			switch g.Kind {
-			case "role":
-				roleGaps++
-			case "parity":
-				parityGaps++
-			default:
-				tokenGaps++
-			}
+			counts[cmp.Or(map[string]string{"role": "no role probe", "parity": "no profile probe"}[g.Kind], "no token")]++
 		}
 	}
-	if unchained > 0 {
-		fmt.Printf("\n%d rpc(s) are called by no chain, so no run or gate exercises them: shrt contract status -gaps lists them as 'no chain'\n", unchained)
-	}
-	if unstated > 0 {
-		fmt.Printf("\n%d write/state pair(s) are called by no chain from a state the write's plan calls it from, or not with every item count it sends there, "+
-			"so logic that depends on the state it starts from goes untested: shrt contract status -gaps lists them as 'no state'\n", unstated)
-	}
-	if parityGaps > 0 {
-		fmt.Printf("\n%d rpc/profile pair(s) whose contract lets every role call the rpc are never called as that profile, so a role check added by mistake passes every gate: shrt contract status -gaps lists them as 'no profile probe'\n", parityGaps)
-	}
-	if roleGaps > 0 {
-		fmt.Printf("\n%d role-gated rpc/profile pair(s) are never called as a profile lacking the role, so a dropped role check passes every gate: shrt contract status -gaps lists them as 'no role probe'\n", roleGaps)
-	}
-	if tokenGaps > 0 {
-		fmt.Printf("\n%d chained rpc(s) are never called without a token or with auth: invalid: shrt contract status -gaps lists them as 'no token'\n", tokenGaps)
+	for _, s := range statusSummaries {
+		if n := counts[s.kind]; n > 0 {
+			fmt.Printf("\n%d %s: shrt contract status -gaps lists them as '%s'\n", n, s.text, s.kind)
+		}
 	}
 	return nil
+}
+
+var statusSummaries = []struct{ kind, text string }{
+	{"one item", "repeated request field(s) are sent with at most one item by every chain that sends them, so per-item logic goes untested"},
+	{"same resource", "repeated request field(s) are sent with two or more items only when every item points at the same " +
+		"resource, so per-item logic that reads each item's own resource goes untested"},
+	{"no repeat", "repeated request field(s) are never sent with one resource on two applied items, so logic that merges, " +
+		"deduplicates or counts once per resource goes untested"},
+	{"no chain", "rpc(s) are called by no chain, so no run or gate exercises them"},
+	{"no state", "write/state pair(s) are called by no chain from a state the write's plan calls it from, or not with every item count it sends there, " +
+		"so logic that depends on the state it starts from goes untested"},
+	{"no profile probe", "rpc/profile pair(s) whose contract lets every role call the rpc are never called as that profile, so a role check added by mistake passes every gate"},
+	{"no role probe", "role-gated rpc/profile pair(s) are never called as a profile lacking the role, so a dropped role check passes every gate"},
+	{"no token", "chained rpc(s) are never called without a token or with auth: invalid"},
 }
 
 func byRPC[T any](items []T, rpc func(T) string) map[string][]T {
@@ -478,9 +460,8 @@ func contractQuality(args []string) error {
 	if _, err := parseArgs(fs, args); err != nil {
 		return err
 	}
-	if !contract.ValidPhase(*phase) {
-		return fmt.Errorf("unknown -phase %q, want %s, %s or %s",
-			*phase, contract.PhaseHappy, contract.PhaseFailure, contract.PhaseAll)
+	if err := contract.CheckPhase(*phase); err != nil {
+		return err
 	}
 	e, lib, err := loadLibrary()
 	if err != nil {
@@ -504,13 +485,9 @@ func contractQuality(args []string) error {
 			"keep the phase view for reading rather than gating", *baseline, *phase)
 	}
 	if *asJSON {
-		if err := emitJSON(report); err != nil {
+		if err := emitJSON(report); err != nil || !*gate {
 			return err
 		}
-		if *gate {
-			return qualityGate(report, *baseline)
-		}
-		return nil
 	}
 	if *gate {
 		return qualityGate(report, *baseline)
