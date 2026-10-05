@@ -22,7 +22,8 @@ re-run shows it can be, with the read-back that contradicts a write's answer kep
 repeated key, a field's value or byte length, or two of these together), or says every call fails,
 and how got relates to what was sent: take it as the pattern instead of working it out from the
 runs. Where it rests on few calls, the gate has sent the contrasting calls itself and prints the
-firmed line, or `trigger above does not hold:`, above the row's repro. A row of a
+firmed line (`trigger, firmed by -repro in place of the row's line above:`, the one to trust), or
+`trigger above does not hold:`, above the row's repro. A row of a
 counter a write moved (`increase:`/`decrease:` in its contract) says how far against the approved run
 (`fell 4 from 10 to 6 where the approved run fell 2 from 10 to 8: 2x`), measured only on that record.
 One `masks:` line says whether a mask hid more than run tags, ids and timestamps; each `KEPT RED`

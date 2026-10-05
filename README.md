@@ -213,7 +213,8 @@ cus-20f172fdb285-unknown)`, or `not for another of its shape` when that one is r
 refused as the failing call was (answers, for a read that should be refused), answers the echoed field other than
 sent, or answers nothing where the failing call answered nothing; it passes when it succeeds (is refused, for such a
 read), echoes the field as sent or answers something; any other answer, or a changed write refused, leaves it out. The firmed line goes in place of a
-gap's trigger or above a row's repro; a call landing on the other side says so instead: `trigger above does not hold:
+gap's trigger or above a row's repro, there as `trigger, firmed by -repro in place of the row's line above:` when the row
+had a line; a call landing on the other side says so instead: `trigger above does not hold:
 sent again with lines of 4 items, the call passed` (a gap's row: `trigger: none: ...`). When the row's write answered other than a later read returns
 (`answered <x>, but <rpc> read <y>`), that read is appended to the slice expecting what the write answered, through a
 var (`equals: ${vars.<write>_answered}`, so its failed line reads `want=<x> (${vars.<write>_answered}) got=<y>`), and run once

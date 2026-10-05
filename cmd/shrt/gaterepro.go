@@ -59,6 +59,8 @@ func gateRepro(ctx context.Context, e *env, chains []*gateChain, groups []*gateG
 		switch line, against := firmTrigger(ctx, e, files[key], at, fails, passes); {
 		case against != "":
 			fmt.Println("    trigger above does not hold: " + against)
+		case line != gr.trigger && gr.trigger != "":
+			fmt.Println("    trigger, firmed by -repro in place of the row's line above: " + strings.TrimPrefix(line, "trigger: "))
 		case line != gr.trigger:
 			fmt.Println("    " + line)
 		}

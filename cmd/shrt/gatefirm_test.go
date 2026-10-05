@@ -48,7 +48,7 @@ func TestGateReproSendsAnEchoedFieldAtTheBoundaryItsCutImplies(t *testing.T) {
 		want  string
 	}{
 		{"a cut past 20 bytes: 20 bytes pass and 21 fail", steps, 20,
-			"    trigger: fails with sku longer than 20 bytes (3 calls); passes with sku of up to 20 bytes (3 calls); got keeps the first 20 bytes of the sku sent (3 calls)\n    repro: "},
+			"    trigger, firmed by -repro in place of the row's line above: fails with sku longer than 20 bytes (3 calls); passes with sku of up to 20 bytes (3 calls); got keeps the first 20 bytes of the sku sent (3 calls)\n    repro: "},
 		{"a cut past 25 bytes: 21 bytes pass, against the split", steps, 25, "    trigger above does not hold: sent again with sku of 21 bytes, the call passed\n    repro: "},
 		{"the calls already pin 20 and 21 bytes, so nothing is sent", steps + product("twenty", "sku-${vars.tag}-abcdef") + product("twenty_one", "sku-${vars.tag}-abcdefg"), 20, "    repro: "},
 	} {
@@ -82,7 +82,7 @@ func TestGateReproSendsAFieldEmptyTheOtherWayAndAWidePrefix(t *testing.T) {
 		probes  int
 	}{
 		{"an empty or absent prefix lists nothing, a one-byte prefix lists every product", steps, empty,
-			"    trigger: fails with sku_prefix empty or absent (2 calls); passes with sku_prefix set (3 calls)\n    repro: ", 2},
+			"    trigger, firmed by -repro in place of the row's line above: fails with sku_prefix empty or absent (2 calls); passes with sku_prefix set (3 calls)\n    repro: ", 2},
 		{"more than one match lists nothing, so the wide prefix fails too", steps, func(_ any, n int) bool { return n > 1 },
 			"    trigger above does not hold: sent again with sku_prefix \"s\", the call failed\n    repro: ", 2},
 		{"two calls on each side already, so nothing is sent", steps + list("list_none", `""`, includes), empty, "    repro: ", 0},
@@ -108,7 +108,7 @@ func TestGateReproSendsAFieldEmptyTheOtherWayAndAWidePrefix(t *testing.T) {
 		shop.refuseProduct = func(body map[string]any) bool { return body["name"] == nil || body["name"] == "" }
 	})
 	if !strings.Contains(out, "    trigger: fails with name empty or absent (1 call); passes with name set (2 calls)\n") ||
-		!strings.Contains(reproBlock(out), "  ProductService/CreateProduct status.code\n    trigger: fails with name empty or absent (2 calls); passes with name set (2 calls)\n") {
+		!strings.Contains(reproBlock(out), "  ProductService/CreateProduct status.code\n    trigger, firmed by -repro in place of the row's line above: fails with name empty or absent (2 calls); passes with name set (2 calls)\n") {
 		t.Errorf("the call sent again without its name copies its price, so the price does not split the calls too:\n%s", out)
 	}
 }
@@ -179,7 +179,7 @@ func TestGateReproSendsAProfilesCallOnARecordItCreatedItself(t *testing.T) {
 		want   string
 	}{
 		{"a clerk is refused every thing", func(caller, _ string) bool { return caller == "clerk" },
-			"    trigger: fails when Fetch itself is sent as clerk (2 calls; 1 of them acts on records created as default, so the creator need not be clerk; 1 of them acts on records created as clerk too); passes as default (2 calls)\n    repro: "},
+			"    trigger, firmed by -repro in place of the row's line above: fails when Fetch itself is sent as clerk (2 calls; 1 of them acts on records created as default, so the creator need not be clerk; 1 of them acts on records created as clerk too); passes as default (2 calls)\n    repro: "},
 		{"a clerk is refused only what another profile created", func(caller, owner string) bool { return caller == "clerk" && owner != "clerk" },
 			"    trigger above does not hold: sent again as clerk on what clerk created, the call passed\n    repro: "},
 	} {
