@@ -347,10 +347,8 @@ func chainLint(args []string) error {
 				continue
 			}
 			status := "warn"
-			for _, i := range r.Issues {
-				if i.Severity == chain.SeverityError {
-					status = "FAIL"
-				}
+			if slices.ContainsFunc(r.Issues, isLintError) {
+				status = "FAIL"
 			}
 			shown, issues := []chain.Issue{}, r.Issues
 			if !*verbose {
@@ -418,12 +416,8 @@ func lintTally(reports []lintReport) string {
 			continue
 		}
 		total++
-		failed := false
-		for _, i := range r.Issues {
-			failed = failed || i.Severity == chain.SeverityError
-		}
 		switch {
-		case failed:
+		case slices.ContainsFunc(r.Issues, isLintError):
 			failing++
 		case len(r.Issues) > 0:
 			warned++
@@ -444,6 +438,8 @@ func lintTally(reports []lintReport) string {
 	}
 	return fmt.Sprintf("%d chain(s): %s", total, strings.Join(parts, ", "))
 }
+
+func isLintError(i chain.Issue) bool { return i.Severity == chain.SeverityError }
 
 type stampSummary struct {
 	paths, chains []string
