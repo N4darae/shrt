@@ -65,7 +65,7 @@ func TestRunAdvisesRaisingTheTimeoutWhenAStepGotNoAnswerInTime(t *testing.T) {
 
 func TestRunOfAFailingChainEndsWithThePinCommand(t *testing.T) {
 	twoDefectWorkspace(t, "name", "gadget")
-	const pin = "pin it: shrt chain pin cli-two-defects (re-runs with -keep-going when needed)"
+	const pin = "pin it: shrt chain pin cli-two-defects"
 	out, code := verTShrt(t, "run", "cli-two-defects", "-keep-going", "-var", "tag=T30")
 	if lines := strings.Split(strings.TrimSpace(strings.Split(out, "\nERR: ")[0]), "\n"); code != 1 || lines[len(lines)-1] != pin {
 		t.Fatalf("a red run ends with the pin command:\n%s", out)

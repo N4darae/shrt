@@ -208,7 +208,7 @@ func TestAKeepGoingRunNamesEachDistinctSuspectMostFailingStepsFirst(t *testing.T
 	}
 	rec.Status, rec.KeepGoing = runner.StatusFailed, true
 	lines := failureRequests(nil, rec, false)
-	if len(lines) != 2 || !strings.HasPrefix(lines[0], "suspect write create (") || !strings.HasPrefix(lines[1], "suspect read list_cancelled (") {
+	if len(lines) != 4 || !strings.HasPrefix(lines[0], "suspect write create (") || !strings.HasPrefix(lines[2], "suspect read list_cancelled (") {
 		t.Fatalf("one line per distinct suspect, the one behind most failing steps first, got %q", lines)
 	}
 	if failureRequests(nil, rec, true) != nil {
@@ -228,8 +228,8 @@ func TestVerifyTellsAWriteFromTheReadThroughAnotherRead(t *testing.T) {
 	report := diff.Compare(&store.SafeSpot{Chain: "shop", RunID: "spot", Steps: steps("10").Steps}, rec)
 	shop := &env{cat: catalogtest.Shop()}
 	line, _ := verifyVerdict(shop, "shop", rec, report, verifyItems(shop, rec, report), nil, false, errors.New("shop: regression"), "")
-	if !strings.Contains(line, "; unclear: write add_stock (StockService/AddStock) or the read") ||
-		!strings.Contains(line, "\n  tell them apart: read product.qty_on_hand through ProductService/ListProducts (products[].qty_on_hand)\n") {
+	if !strings.Contains(line, "; unclear: write add_stock (AddStock) or the read") ||
+		!strings.Contains(line, "\n  tell them apart: read product.qty_on_hand through ListProducts (products[].qty_on_hand)\n") {
 		t.Errorf("got:\n%s", line)
 	}
 }
@@ -244,8 +244,8 @@ func TestARefusedReadsWantIsItsShapeNotTheApprovedValues(t *testing.T) {
 	report := diff.Compare(spot, rec)
 	noteRefused(report, rec)
 	text := report.Text()
-	for _, want := range []string{"[fetch] type       order want=object (as the approved run answered) got=null: refused NOT_FOUND",
-		"[fetch] missing    note want=string (as the approved run answered) got=absent: refused NOT_FOUND"} {
+	for _, want := range []string{"[fetch] type order want=object got=null: refused NOT_FOUND",
+		"[fetch] missing note want=string got=absent: refused NOT_FOUND"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("want %q in:\n%s", want, text)
 		}

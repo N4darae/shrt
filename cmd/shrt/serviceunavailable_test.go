@@ -48,23 +48,23 @@ func TestAnUnavailableTheServiceAnswersBetweenAnsweredCallsIsAFinding(t *testing
 	var err error
 	out := captureStdout(t, func() { err = runRun(ctx, []string{"cli-flaky", "-quiet"}) })
 	wantExit1(t, "run", err, out)
-	if !strings.Contains(out, "FINDING: intermittent failure at ThingService/Fetch") {
+	if !strings.Contains(out, "FINDING: intermittent failure at Fetch") {
 		t.Fatalf("an unavailable with the service's own body, between calls of the same rpc it answered, is the rpc failing: %v\n%s", err, out)
 	}
 	f.set("unavailable", 503, everyNth(2, 4)...)
 	out, err = verifyOnce(t, ctx)
 	wantExit1(t, "verify", err, out)
-	if !strings.Contains(err.Error(), "repeated failure at ThingService/Fetch") {
+	if !strings.Contains(err.Error(), "repeated failure at Fetch") {
 		t.Fatalf("the same unavailable at the same steps as the previous run is a repeated failure: %v\n%s", err, out)
 	}
 	f.set("unavailable", 503, everyNth(2, 4)...)
 	retries := inProcessGate(t)
 	var gateErr error
 	out = captureStdout(t, func() { gateErr = runGate(ctx, []string{"cli-flaky"}) })
-	if exitCodeOf(gateErr) != 1 || !strings.Contains(out, "FINDING    cli-flaky  repeated: ThingService/Fetch failed") || *retries != 0 {
+	if exitCodeOf(gateErr) != 1 || !strings.Contains(out, "FINDING cli-flaky  repeated: Fetch failed") || *retries != 0 {
 		t.Fatalf("the gate fails the chain on the finding, without a retry: %v, %d retries\n%s", gateErr, *retries, out)
 	}
-	if !strings.Contains(out, "FINDING: repeated failure at ThingService/Fetch (failed ") || !strings.Contains(out, ") in 1 chain(s): the backend fails this rpc at the same calls every run, not by chance: a defect in the backend, and a re-run fails the same way\n") {
+	if !strings.Contains(out, "FINDING: repeated failure at Fetch (failed ") || !strings.Contains(out, ") in 1 chain: a backend defect, a re-run fails the same way\n") {
 		t.Fatalf("the gate states the finding once:\n%s", out)
 	}
 }

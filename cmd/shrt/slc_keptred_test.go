@@ -88,7 +88,7 @@ func TestChainPinKeepsTheFailureRedInASliceAndTheRestGreen(t *testing.T) {
 	writeFile(t, ".shrt/chains/probe-orders.yaml", source)
 	var err error
 	out := captureStdout(t, func() { err = runRun(context.Background(), []string{"probe-orders", "-quiet"}) })
-	if err == nil || !strings.HasSuffix(strings.TrimSpace(out), "pin it: shrt chain pin probe-orders (re-runs with -keep-going when needed)") {
+	if err == nil || !strings.HasSuffix(strings.TrimSpace(out), "pin it: shrt chain pin probe-orders") {
 		t.Fatalf("a red run ends with the pin command:\n%s", out)
 	}
 
@@ -443,7 +443,7 @@ func TestAPinnedSliceKeepsTheLastPassingReadOfItsFieldBeforeTheKeptWrites(t *tes
 	}
 	inProcessGate(t)
 	out, _ = quietly(func() error { return runGate(context.Background(), []string{"probe-restock-slice-get_after_cancel"}) })
-	if !strings.Contains(out, "suspect write confirm_order (OrderService/ConfirmOrder)") || strings.Contains(out, "suspect write cancel_order") {
+	if !strings.Contains(out, "suspect write confirm_order (ConfirmOrder)") || strings.Contains(out, "suspect write cancel_order") {
 		t.Fatalf("the gate names the write before the checkpoint:\n%s", out)
 	}
 	sliced, err := quietly(func() error {
@@ -677,7 +677,7 @@ func TestAKeptRedPinThatMovedLeadsAndAGonePinKeepsTheRunsLine(t *testing.T) {
 	}
 	settleGate(chains)
 	for i, want := range map[int]string{
-		0: "confirm_short (OrderService/ConfirmOrder) order.status pinned got=CONFIRMED, now got=REJECTED",
+		0: "confirm_short (ConfirmOrder) order.status pinned got=CONFIRMED, now got=REJECTED",
 		1: gone,
 		2: gone,
 	} {
@@ -880,8 +880,8 @@ func TestAnUnattributedItemElsewhereDoesNotClearAKeptRedItemsSuspect(t *testing.
 	if it := chains[0].items[1]; it.suspect() != "create_p1" {
 		t.Errorf("a total recomputed from a changed price stays under the price: %+v", it)
 	}
-	if want := "create_order (OrderService/CreateOrder) order.total_minor want=6649 got=6644; suspect write create_p1 (ProductService/CreateProduct)"; chains[0].first != want {
-		t.Errorf("got %q, want %q", chains[0].first, want)
+	if want := "create_order (CreateOrder) order.total_minor want=6649 got=6644; suspect write create_p1 (CreateProduct)"; !strings.HasSuffix(chains[0].line(nil), want) {
+		t.Errorf("got %q, want %q", chains[0].line(nil), want)
 	}
 }
 

@@ -540,11 +540,10 @@ func TestTextPairsAMissingAndAnUnexpectedFieldHoldingOneValueAsARename(t *testin
 	}
 	text := r.Text()
 	for _, want := range []string{
-		"[create_order] renamed    order.amount_minor -> order.total_cents (both 3400): likely a renamed field, still a change",
+		"[create_order] renamed order.amount_minor -> order.total_cents (both 3400): likely a renamed field, still a change",
 		"[create_order] unexpected order.note",
-		"[list_orders] missing    orders.0.amount_minor",
+		"[list_orders] missing orders.0.amount_minor",
 		"[list_orders] unexpected orders.0.total_cents",
-		"1 missing and unexpected field pair(s)",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("text lacks %q:\n%s", want, text)

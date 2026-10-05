@@ -80,12 +80,12 @@ func TestAListWhoseLengthChangedIsReportedAsLengthNotOrder(t *testing.T) {
 	long := `{"products":[{"n":1},{"n":2},{"n":3}]}`
 	short := `{"products":[{"n":1}]}`
 	rep := diff.Compare(spotOf(nil, step("list_all_products", long)), recOf(step("list_all_products", short)))
-	if !strings.Contains(rep.Text(), "[list_all_products] length     products want=3 item(s) got=1 item(s)") {
+	if !strings.Contains(rep.Text(), "[list_all_products] length products want=3 got=1") {
 		t.Fatalf("a length change must say length, not order:\n%s", rep.Text())
 	}
 	runs := compareRuns(runOf("run-a", stepAs("list_all_products", runner.StatusPassed, long)),
 		runOf("run-b", stepAs("list_all_products", runner.StatusPassed, short)))
-	if !strings.Contains(runs.Text(), "[list_all_products] length     products a=3 item(s) b=1 item(s)") {
+	if !strings.Contains(runs.Text(), "[list_all_products] length products a=3 b=1") {
 		t.Fatalf("a length change between runs must say length, not order:\n%s", runs.Text())
 	}
 }
@@ -139,7 +139,7 @@ func TestVerifyOfARecordedRunThatStoppedEarlyReportsTheRestAsNotReached(t *testi
 	if strings.Contains(text, "length") {
 		t.Fatalf("a run that stopped at its first red did not change the chain's length:\n%s", text)
 	}
-	if !strings.Contains(text, "[fetch..list] not_reached 2 step(s)") {
+	if !strings.Contains(text, "[fetch..list] not_reached 2 steps") {
 		t.Fatalf("every step past the stop is not reached:\n%s", text)
 	}
 	if !strings.Contains(text, "connection refused") || strings.Contains(text, "type ") {
@@ -185,7 +185,7 @@ func TestStepsAStoppedRunNeverReachedAreNotCountedAsChanges(t *testing.T) {
 		t.Fatalf("the total changed and failed the step, whose status is shown on the first failing step line; the two steps never reached are not changes, counted %d:\n%s", got, rep.Text())
 	}
 	text := rep.Text()
-	if !strings.Contains(text, "[fetch..list] not_reached 2 step(s)") {
+	if !strings.Contains(text, "[fetch..list] not_reached 2 steps") {
 		t.Fatalf("the steps not reached are still listed:\n%s", text)
 	}
 }

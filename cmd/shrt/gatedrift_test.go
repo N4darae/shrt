@@ -17,10 +17,10 @@ func TestTheGateHeadlinesAChainByAFaultNoEarlierChainShowed(t *testing.T) {
 	})
 	out, code := runGateOut(t)
 	for _, want := range []string{
-		"FAIL       cli-thing-flow  create (ThingService/Create) thing.price want=250 got=249; suspect the write; also suspect read fetch_as_other (ThingService/Fetch) as other: refused (DENIED), passes as default\n",
-		"FAIL       cli-unique      pins held, new change: create (ThingService/Create) thing.price want=250 got=249; same fault as cli-thing-flow (Create)\n",
-		"  ThingService/Create thing.price: 4 step(s) in 2 chain(s); e.g. cli-thing-flow create\n",
-		"  ThingService/Fetch error.code: 1 step(s) in 1 chain(s); e.g. cli-thing-flow fetch_as_other; as other: refused (DENIED), passes as default\n",
+		"FAIL cli-thing-flow  create (Create) thing.price want=250 got=249; suspect the write\n  also suspect read fetch_as_other (Fetch) as other: refused (DENIED), passes as default\n",
+		"FAIL cli-unique  pins held, new change: create (Create) thing.price want=250 got=249; same fault as cli-thing-flow (Create)\n",
+		"  Create thing.price: 4 steps in 2 chains, e.g. cli-thing-flow create\n",
+		"  Fetch error.code: 1 step in 1 chain, e.g. cli-thing-flow fetch_as_other; as other: refused (DENIED), passes as default\n",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("want %q in:\n%s", want, out)
@@ -42,7 +42,7 @@ func TestAKeptRedChainWhosePinMovedNamesThePinAndItsSuspect(t *testing.T) {
 		"run cli-unique":        {{code: 1, side: gateSidecar{KeptRed: "not_as_pinned", Items: []gateItem{drift, pin}}}},
 	})
 	out, _ := runGateOut(t)
-	want := "FAIL       cli-unique      not as pinned: get_pinned (ThingService/Get) thing.level pinned got=8, now got=-3; same fault as cli-thing-flow (Move)\n"
+	want := "FAIL cli-unique  not as pinned: get_pinned (Get) thing.level pinned got=8, now got=-3; same fault as cli-thing-flow (Move)\n"
 	if !strings.Contains(out, want) {
 		t.Errorf("want %q in:\n%s", want, out)
 	}
@@ -55,7 +55,7 @@ func TestAMovedPinWithNoSuspectDoesNotPointAbove(t *testing.T) {
 		{name: "b", failed: true, items: []gateItem{{Step: "get_pinned", Call: get, Path: "thing.level", Want: "4", Got: "2", Pinned: "-1"}}},
 	}
 	settleGate(chains)
-	if want := "get_pinned (ThingService/Get) thing.level pinned got=-1, now got=2"; chains[1].first != want || chains[1].class != "not as pinned" {
+	if want := "get_pinned (Get) thing.level pinned got=-1, now got=2"; chains[1].first != want || chains[1].class != "not as pinned" {
 		t.Errorf("got %q %q, want %q", chains[1].class, chains[1].first, want)
 	}
 }
@@ -67,7 +67,7 @@ func TestAKeptRedChainWhosePinsHeldNamesANewChangeWithoutARePin(t *testing.T) {
 		"run cli-unique": {{code: 1, side: gateSidecar{Error: "chain cli-unique: kept red, but it did not fail as pinned: a pinned step now returns something else", KeptRed: "not_as_pinned", PinsHeld: true, Items: []gateItem{drift}}}},
 	})
 	out, _ := runGateOut(t)
-	if want := "FAIL       cli-unique      pins held, new change: fetch (ThingService/Fetch) thing.total want=9 got=0\n"; !strings.Contains(out, want) || strings.Contains(out, "-force") {
+	if want := "FAIL cli-unique  pins held, new change: fetch (Fetch) thing.total want=9 got=0\n"; !strings.Contains(out, want) || strings.Contains(out, "-force") {
 		t.Errorf("want %q and no re-pin in:\n%s", want, out)
 	}
 }
@@ -84,11 +84,11 @@ func TestAFailedFirstChangeShownAboveStillLeadsOverADrift(t *testing.T) {
 	}
 	settleGate(chains)
 	for i, want := range []string{
-		"add (ThingService/Add) status.code want=REJECTED got=SUCCESS; suspect the write",
-		"add_as_clerk (ThingService/Add) status.code want=REJECTED got=SUCCESS; same fault as a (Add)",
+		"add (Add) status.code want=REJECTED got=SUCCESS; suspect the write",
+		"add_as_clerk (Add) status.code want=REJECTED got=SUCCESS; same fault as a (Add)",
 	} {
-		if chains[i].first != want {
-			t.Errorf("chain %s: got %q, want %q", chains[i].name, chains[i].first, want)
+		if got := strings.TrimPrefix(chains[i].line(nil), "FAIL "+chains[i].name+"  "); got != want {
+			t.Errorf("chain %s: got %q, want %q", chains[i].name, got, want)
 		}
 	}
 }
@@ -98,7 +98,7 @@ func TestTheGateTellsTheWriteFromTheReadOnlyUnderV(t *testing.T) {
 	it := gateItem{Step: "fetch", Call: fetch, Path: "name", Want: `"a "`, Got: "a", Failed: true,
 		Reason: reason{Kind: reasonUnclear, Step: "create", RPC: create, Read: "fetch", ReadRPC: fetch, Path: "name", Want: "a ", Got: "a"}}
 	gateWorkspace(t, map[string][]gateOutcome{"verify cli-thing-flow": {{code: 1, side: gateSidecar{Items: []gateItem{it}}}}})
-	const hint = "\n  tell them apart: read name through PartnerService/FetchMine (name)\n"
+	const hint = "\n  tell them apart: read name through FetchMine (name)\n"
 	if out, _ := runGateOut(t); strings.Contains(out, "tell them apart") {
 		t.Errorf("the default gate row carries no hint:\n%s", out)
 	}

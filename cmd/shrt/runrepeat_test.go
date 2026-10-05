@@ -89,11 +89,10 @@ func TestRunRepeatProvesAHandWrittenChainAsWrittenAndLeavesItUnchanged(t *testin
 	for _, want := range []string{
 		"repeat 2 of 3: run ", "get_after_confirm, restock, as run 1",
 		"reproduced 3/3: get_after_confirm, restock failed the same way in every run\n",
-		"  get_after_confirm (ProductService/GetProduct): answered status.code \"SUCCESS\"\n",
+		"  get_after_confirm (GetProduct): answered status.code \"SUCCESS\"\n",
 		"    failed: product.qty_on_hand want=8 got=7\n",
-		"  restock (StockService/AddStock): answered status.code \"SUCCESS\"\n",
-		"the chain ran as written and is unchanged\n" +
-			"exit 0: reproduced 3/3; -repeat exits 0 when every run failed the same way, 1 when the runs differ or none failed, 3 when a run got no answer\n",
+		"  restock (AddStock): answered status.code \"SUCCESS\"\n",
+		"in .shrt/runs/repro-confirm\nexit 0: reproduced 3/3\n",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("lacks %q:\n%s", want, out)
@@ -107,7 +106,7 @@ func TestRunRepeatProvesAHandWrittenChainAsWrittenAndLeavesItUnchanged(t *testin
 	}
 	out, code = runOut(t, handReproPath, "-repeat", "2", "-keep-going=false", "-quiet")
 	if code != 0 || !strings.Contains(out, "reproduced 2/2: get_after_confirm failed the same way in every run") ||
-		!strings.Contains(out, "  1 later step(s) were not run (restock)") || strings.Contains(out, "qty_on_hand want=9") || strings.Contains(out, "repeat 1 of 2") {
+		!strings.Contains(out, "  not run: 1 later step (restock)") || strings.Contains(out, "qty_on_hand want=9") || strings.Contains(out, "repeat 1 of 2") {
 		t.Fatalf("-keep-going=false stops each run at its first failed step and says what it left unchecked; -quiet drops the per-repeat lines: exit %d\n%s", code, out)
 	}
 	var v repeatVerdict
@@ -124,10 +123,10 @@ func TestRunRepeatSaysWhatDifferedWhenTheRunsDoNotFailAlike(t *testing.T) {
 		t.Fatalf("exit %d, want 1:\n%s", code, out)
 	}
 	for _, want := range []string{
-		"NOT REPRODUCED: 1 of 3 runs failed as run 1 did; below, source is run 1\n",
+		"NOT REPRODUCED: 1 of 3 runs failed as run 1 did\n",
 		"): failed steps: source none, run 2 create_customer, get_after_confirm, restock\n",
 		"repeat 3 of 3: run ", "failed at create_customer, get_after_confirm, restock, not as run 1",
-		"\nexit 1: NOT REPRODUCED, 1 of 3 runs failed as run 1 did; -repeat exits 0 when every run failed the same way",
+		"\nexit 1: NOT REPRODUCED, 1 of 3 runs failed as run 1 did\n",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("lacks %q:\n%s", want, out)
@@ -138,8 +137,8 @@ func TestRunRepeatSaysWhatDifferedWhenTheRunsDoNotFailAlike(t *testing.T) {
 func TestRunRepeatGivesEachLaterRunAFreshFixtureAndCallsAllGreenNothingToReproduce(t *testing.T) {
 	handReproShop(t, false, handReproChain)
 	out, code := runOut(t, handReproPath, "-repeat", "3", "-var", "tag=mine")
-	if code != 1 || !strings.Contains(out, "passed 3/3: no step failed in any run, so there is no failure to reproduce") ||
-		!strings.Contains(out, "is unchanged\nexit 1: passed 3/3, nothing reproduced; -repeat exits 0 when every run failed the same way, 1 when the runs differ or none failed, 3 when a run got no answer\n") {
+	if code != 1 || !strings.Contains(out, "passed 3/3: no step failed in any run\n") ||
+		!strings.Contains(out, "in .shrt/runs/repro-confirm\nexit 1: passed 3/3, nothing reproduced\n") {
 		t.Fatalf("exit %d:\n%s", code, out)
 	}
 	out, code = runOut(t, handReproPath, "-repeat", "2")
@@ -158,7 +157,7 @@ func TestRunRepeatAgainstADeadTargetHasNoVerdict(t *testing.T) {
 	writeFile(t, ".shrt/config.yaml", strings.Replace(string(mustRead(t, ".shrt/config.yaml")), "base_url: ", "base_url: "+deadCLITarget(t)+" #", 1))
 	out, code := runOut(t, handReproPath, "-repeat", "3")
 	if code != 3 || !strings.Contains(out, "DID NOT RUN: run 1 (") || strings.Contains(out, "reproduced") || strings.Contains(out, "repeat 2 of 3") ||
-		!strings.Contains(out, "\nexit 3: DID NOT RUN; -repeat exits 0 when every run failed the same way") {
+		!strings.Contains(out, "\nexit 3: DID NOT RUN\n") {
 		t.Fatalf("exit %d, want 3 and no second run:\n%s", code, out)
 	}
 }

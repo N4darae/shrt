@@ -364,7 +364,7 @@ func TestVerifyScenarios(t *testing.T) {
 			fixApprove(t, "cli-unjudged")
 			return []verTCheck{
 				{args: []string{"verify", "cli-unjudged", "-quiet"}, set: func() { drift = true }, code: 1,
-					has: []string{"[create] not_judged", "shrt catalog build", "[fetch_other] changed    name"}, not: []string{"[create] changed", "[create] status"}},
+					has: []string{"[create] not_judged", "shrt catalog build", "[fetch_other] changed name"}, not: []string{"[create] changed", "[create] status"}},
 				{args: []string{"verify", "cli-unjudged", "-quiet", "-v"}, code: 1, has: []string{"[create] changed"}},
 			}
 		}},
@@ -485,7 +485,7 @@ func TestVerifyScenarios(t *testing.T) {
 				rows = append(rows, c)
 			}
 			return append(rows,
-				verTCheck{args: []string{"verify", "cli-fixture-flow", "-var", "tag=second"}, code: 1, has: []string{"not counted: ", "(-masked lists them)"}, not: []string{"create name"}},
+				verTCheck{args: []string{"verify", "cli-fixture-flow", "-var", "tag=second"}, code: 1, not: []string{"create name"}},
 				verTCheck{args: []string{"verify", "cli-fixture-flow", "-var", "tag=third", "-masked"}, code: 1,
 					has: []string{"request values differing only in a fixture name or under a volatile path, not compared:\n  create name ("}},
 				verTCheck{args: v("-var", "kind=KIND_B", "-var", "tag=fifth"), set: func() { regressed = false }, code: 1,
@@ -654,7 +654,7 @@ func TestVerifyScenarios(t *testing.T) {
 				{args: []string{"verify", "cli-thing-flow", "-quiet"}, set: func() {
 					restore()
 					verTEdit(t, thing, "name: cli-thing-flow\n", "name: cli-thing-flow\nvolatile:\n    - '**'\n")()
-				}, code: 1, has: []string{"did not approve: **", "not counted: "}},
+				}, code: 1, has: []string{"did not approve: **"}},
 			}
 		}},
 		{"verify without an approved safe spot says what to do", func(t *testing.T) []verTCheck {
@@ -665,7 +665,7 @@ func TestVerifyScenarios(t *testing.T) {
 			return []verTCheck{
 				{args: v, code: 1, has: []string{"ERR: chain cli-thing-flow has no safe spot:", ".shrt/safespots/cli-thing-flow.json"}, not: []string{"file does not exist"}},
 				{args: []string{"run", "cli-thing-flow", "-quiet"}, code: 0},
-				{args: []string{"verify", "cli-thing-flow", "-run", "latest"}, code: 1, has: []string{"passed; no safe spot to diff it against", "no safe spot yet"}},
+				{args: []string{"verify", "cli-thing-flow", "-run", "latest"}, code: 1, has: []string{"passed, no safe spot", "no safe spot yet"}},
 				{args: []string{"confirm", "cli-thing-flow", "-note", "fetch returns the created name"}, code: 0},
 				{args: v, code: 1, has: []string{"shrt confirm cli-thing-flow -approve -by <their email>"}, not: []string{"<name>"}},
 			}
@@ -691,9 +691,9 @@ func TestVerifyScenarios(t *testing.T) {
 			own := latest()
 			v := []string{"verify", "cli-thing-flow", "-quiet", "-run", "latest"}
 			return []verTCheck{
-				{args: v, code: 0, has: []string{"-run latest is run " + own, "IS the safe spot's own run"}},
+				{args: v, code: 0, has: []string{"-run latest is run " + own, "is the safe spot's own run"}},
 				{args: []string{"run", "cli-thing-flow", "-quiet"}, code: 0},
-				{args: v, code: 0, not: []string{"IS the safe spot's own run"}, then: func(t *testing.T, out string) {
+				{args: v, code: 0, not: []string{"is the safe spot's own run"}, then: func(t *testing.T, out string) {
 					if !strings.Contains(out, "-run latest is run "+latest()) {
 						t.Errorf("verify -run latest names the newest run:\n%s", out)
 					}

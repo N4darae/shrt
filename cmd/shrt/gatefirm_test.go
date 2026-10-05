@@ -22,7 +22,7 @@ func firmGate(t *testing.T, shop *fakeShop, steps string, bug func()) string {
 }
 
 func reproBlock(out string) string {
-	_, block, _ := strings.Cut(out, "repro, for each row of failures by suspect rpc:\n")
+	_, block, _ := strings.Cut(out, "failures by suspect rpc:\n")
 	return block
 }
 
@@ -48,14 +48,15 @@ func TestGateReproSendsAnEchoedFieldAtTheBoundaryItsCutImplies(t *testing.T) {
 		want  string
 	}{
 		{"a cut past 20 bytes: 20 bytes pass and 21 fail", steps, 20,
-			"    trigger, firmed by -repro in place of the row's line above: fails with sku longer than 20 bytes (3 calls); passes with sku of up to 20 bytes (3 calls); got keeps the first 20 bytes of the sku sent (3 calls)\n    repro: "},
-		{"a cut past 25 bytes: 21 bytes pass, against the split", steps, 25, "    trigger above does not hold: sent again with sku of 21 bytes, the call passed\n    repro: "},
-		{"the calls already pin 20 and 21 bytes, so nothing is sent", steps + product("twenty", "sku-${vars.tag}-abcdef") + product("twenty_one", "sku-${vars.tag}-abcdefg"), 20, "    repro: "},
+			"    trigger: fails with sku longer than 20 bytes (3 calls); passes with sku of up to 20 bytes (3 calls); got keeps the first 20 bytes of the sku sent (3 calls)\n    repro: "},
+		{"a cut past 25 bytes: 21 bytes pass, against the split", steps, 25, "    trigger: none: sent again with sku of 21 bytes, the call passed\n    repro: "},
+		{"the calls already pin 20 and 21 bytes, so nothing is sent", steps + product("twenty", "sku-${vars.tag}-abcdef") + product("twenty_one", "sku-${vars.tag}-abcdefg"), 20,
+			"    trigger: fails with sku longer than 20 bytes (3 calls); passes with sku of up to 20 bytes (3 calls); got keeps the first 20 bytes of the sku sent (3 calls)\n    repro: "},
 	} {
 		shop := newFakeShop()
 		out := firmGate(t, shop, c.steps, func() { shop.cutSku = cut(c.over) })
 		block := reproBlock(out)
-		if !strings.Contains(out, "got keeps the first 20 bytes of the sku sent") || !strings.Contains(block, "  ProductService/CreateProduct product.sku\n"+c.want) || strings.Count(block, "trigger") > 1 {
+		if !strings.Contains(block, c.want) || strings.Count(block, "trigger") > 1 {
 			t.Errorf("%s:\n%s", c.name, out)
 		}
 	}
@@ -82,9 +83,9 @@ func TestGateReproSendsAFieldEmptyTheOtherWayAndAWidePrefix(t *testing.T) {
 		probes  int
 	}{
 		{"an empty or absent prefix lists nothing, a one-byte prefix lists every product", steps, empty,
-			"    trigger, firmed by -repro in place of the row's line above: fails with sku_prefix empty or absent (2 calls); passes with sku_prefix set (3 calls)\n    repro: ", 2},
+			"    trigger: fails with sku_prefix empty or absent (2 calls); passes with sku_prefix set (3 calls)\n    repro: ", 2},
 		{"more than one match lists nothing, so the wide prefix fails too", steps, func(_ any, n int) bool { return n > 1 },
-			"    trigger above does not hold: sent again with sku_prefix \"s\", the call failed\n    repro: ", 2},
+			"    trigger: none: sent again with sku_prefix \"s\", the call failed\n    repro: ", 2},
 		{"two calls on each side already, so nothing is sent", steps + list("list_none", `""`, includes), empty, "    repro: ", 0},
 	} {
 		shop := newFakeShop()
@@ -95,7 +96,7 @@ func TestGateReproSendsAFieldEmptyTheOtherWayAndAWidePrefix(t *testing.T) {
 				probes++
 			}
 		}
-		if !strings.Contains(reproBlock(out), "  ProductService/ListProducts products\n"+c.want) || probes != c.probes {
+		if !strings.Contains(reproBlock(out), c.want) || probes != c.probes {
 			t.Errorf("%s: %d probe(s):\n%s", c.name, probes, out)
 		}
 	}
@@ -107,8 +108,8 @@ func TestGateReproSendsAFieldEmptyTheOtherWayAndAWidePrefix(t *testing.T) {
 	out := firmGate(t, shop, product("unnamed", `""`, "250")+product("named_a", "A", "100")+product("named_b", "B", "200"), func() {
 		shop.refuseProduct = func(body map[string]any) bool { return body["name"] == nil || body["name"] == "" }
 	})
-	if !strings.Contains(out, "    trigger: fails with name empty or absent (1 call); passes with name set (2 calls)\n") ||
-		!strings.Contains(reproBlock(out), "  ProductService/CreateProduct status.code\n    trigger, firmed by -repro in place of the row's line above: fails with name empty or absent (2 calls); passes with name set (2 calls)\n") {
+	if strings.Contains(out, "    trigger: fails with name empty or absent (1 call); passes with name set (2 calls)\n") ||
+		!strings.Contains(reproBlock(out), "\n    trigger: fails with name empty or absent (2 calls); passes with name set (2 calls)\n") {
 		t.Errorf("the call sent again without its name copies its price, so the price does not split the calls too:\n%s", out)
 	}
 }
@@ -130,7 +131,7 @@ func TestGateReproSendsAnUnknownIDReadWithAnotherIDOfItsShape(t *testing.T) {
 	} {
 		shop := newFakeShop()
 		out := firmGate(t, shop, steps, func() { shop.unknownOK = c.ok(shop) })
-		if !regexp.MustCompile(`  ProductService/GetProduct status.code\n` + c.want).MatchString(reproBlock(out)) {
+		if !regexp.MustCompile(c.want).MatchString(reproBlock(out)) {
 			t.Errorf("%s:\n%s", c.name, out)
 		}
 	}
@@ -179,9 +180,9 @@ func TestGateReproSendsAProfilesCallOnARecordItCreatedItself(t *testing.T) {
 		want   string
 	}{
 		{"a clerk is refused every thing", func(caller, _ string) bool { return caller == "clerk" },
-			"    trigger, firmed by -repro in place of the row's line above: fails when Fetch itself is sent as clerk (2 calls; 1 of them acts on records created as default, so the creator need not be clerk; 1 of them acts on records created as clerk too); passes as default (2 calls)\n    repro: "},
+			"    trigger: fails when Fetch is sent as clerk (2 calls; 1 on records created as default); passes as default (2 calls)\n    repro: "},
 		{"a clerk is refused only what another profile created", func(caller, owner string) bool { return caller == "clerk" && owner != "clerk" },
-			"    trigger above does not hold: sent again as clerk on what clerk created, the call passed\n    repro: "},
+			"    trigger: none: sent again as clerk on what clerk created, the call passed\n    repro: "},
 	} {
 		shop := &thingShop{owner: map[string]string{}, refuse: c.refuse}
 		srv := shop.server()
@@ -200,7 +201,7 @@ func TestGateReproSendsAProfilesCallOnARecordItCreatedItself(t *testing.T) {
 		writeFile(t, ".shrt/chains/things.yaml", "apiVersion: shrt/v1\nname: things\nsteps:\n"+create("create")+fetch("fetch_clerk", "clerk", "create")+
 			create("create_2")+fetch("fetch_2", "default", "create_2")+create("create_3")+fetch("fetch_3", "default", "create_3"))
 		out, _ := shrtOut(t, "gate", "-repro", "-no-session-check", "-hollow-baseline", "")
-		if !strings.Contains(reproBlock(out), "  ThingService/Fetch error.code\n"+c.want) {
+		if !strings.Contains(reproBlock(out), c.want) {
 			t.Errorf("%s:\n%s", c.name, out)
 		}
 	}

@@ -54,7 +54,7 @@ func TestTextCollapsesIdenticalNotReachedLinesIntoOne(t *testing.T) {
 	if n := strings.Count(text, "not_reached"); n != 1 {
 		t.Fatalf("four steps not sent for the same reason must be one line, got %d:\n%s", n, text)
 	}
-	if !strings.Contains(text, "4 step(s)") || !strings.Contains(text, "[b..e]") || !strings.Contains(text, why) {
+	if !strings.Contains(text, "4 steps") || !strings.Contains(text, "[b..e]") || !strings.Contains(text, why) {
 		t.Fatalf("the summary must name the count, the steps and the reason:\n%s", text)
 	}
 	if r.Counted() != 1 {

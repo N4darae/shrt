@@ -711,10 +711,6 @@ func (r *Runner) skippedRecord(i int, step *chain.Step) *StepRecord {
 func (r *Runner) skippedBehind(i int, step *chain.Step, ref string, producer *StepRecord) *StepRecord {
 	sr := r.skippedRecord(i, step)
 	sr.Error = fmt.Sprintf("not sent: ${%s} reads step %q, which %s", ref, producer.ID, whyNotReadable(producer))
-	if producer.Request != nil {
-		sr.Error += fmt.Sprintf(" A reference to its request (${steps.%s.request...}) is still safe: that "+
-			"is what was sent, so a step reading only that is sent", producer.ID)
-	}
 	return sr
 }
 
@@ -743,25 +739,21 @@ func innermost(err error) string {
 func whyNotReadable(sr *StepRecord) string {
 	switch {
 	case sr.Status == StatusSkipped:
-		return "was itself not sent, so it has no response to read."
+		return "was itself not sent"
 	case sr.Transport != nil:
-		return fmt.Sprintf("was refused before a response body existed (transport %s), so there is no "+
-			"response to read.", sr.Transport.Code)
+		return fmt.Sprintf("was refused (transport %s)", sr.Transport.Code)
 	case sr.Status == StatusError:
-		return "did not complete (" + FirstLine(sr.Error) + "), so there is no response to read."
+		return "did not complete (" + FirstLine(sr.Error) + ")"
 	case sr.Drift:
-		return "was answered with a body the descriptor could not decode, so no value read from it can be trusted."
+		return "has a body the descriptor could not decode"
 	}
 	if code, refused := inBandRefusal(sr.Response); refused {
-		return fmt.Sprintf("was refused in-band (%s = %s): a refused call's response decodes to zero values, "+
-			"and the request would carry them as if they were real.", chain.EnvelopePath(), code)
+		return fmt.Sprintf("was refused in-band (%s = %s)", chain.EnvelopePath(), code)
 	}
 	if failed := failedPaths(sr.Expect); len(failed) > 0 {
-		return fmt.Sprintf("was answered but failed its assertion on %s: -keep-going does not send a request "+
-			"built from a response the chain has already said is wrong.", strings.Join(failed, ", "))
+		return "failed its assertion on " + strings.Join(failed, ", ")
 	}
-	return "did not pass (" + FirstLine(cmp.Or(sr.Error, sr.Status)) + "), so -keep-going does not " +
-		"send a request built from its response."
+	return "did not pass (" + FirstLine(cmp.Or(sr.Error, sr.Status)) + ")"
 }
 
 func envelopeOKNeverSeen(steps []*StepRecord) string {
@@ -1053,7 +1045,7 @@ func (r *Runner) Run(ctx context.Context, c *chain.Chain, opts Options) (*Record
 	case len(failures) > 0:
 		how := "-keep-going:"
 		if pastPins {
-			how = "kept_red: ran every step, as -keep-going does;"
+			how = "kept_red:"
 		}
 		rec.Failure = fmt.Sprintf("%s %d of %d steps did not pass\n", how, len(failed)+unreached, len(c.Steps)) + strings.Join(failures, "\n")
 	}

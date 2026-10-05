@@ -75,7 +75,7 @@ probe-orders without confirm_single: the new chain holds 9 of the 10 steps, the 
 
      9  confirm_single  left out: named
 
-9 step(s) passed (-v prints every step)
+9 steps passed
 
 verify without confirm_single: 1 of 1 step(s) that failed in source run RUNID pass without it: cancel_confirmed (it acts on the order confirm_single changed and may need that state: not proof confirm_single is the cause)
 

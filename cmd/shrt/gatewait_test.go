@@ -75,10 +75,10 @@ func TestAWaitingChainThatOnlyReadsItsOwnTagRunsBesideTheOthers(t *testing.T) {
 		return out
 	}
 	out, errOut, code := gateWithStderr(t)
-	if code != 0 || !strings.HasPrefix(out, "PASS       a-hold\nPASS       cli-thing-flow\nPASS       cli-unique\n") {
+	if code != 0 || !strings.HasPrefix(out, "PASS a-hold\nPASS cli-thing-flow\nPASS cli-unique\n") {
 		t.Fatalf("a waiting chain that writes nothing and reads only its own tag runs beside the queue, its line in its place, got %d:\n%s%s", code, out, errOut)
 	}
-	if !strings.Contains(errOut, "gate: a-hold waits 4m0s by design (its wait: steps); it starts now, beside the other chains") {
+	if !strings.Contains(errOut, "gate: a-hold waits 4m, started now, beside the other chains; -skip-waits leaves it out") {
 		t.Errorf("the gate says at once that a chain waits on purpose:\n%s", errOut)
 	}
 	if !strings.Contains(out, "time: 0s; slowest: a-hold 0s (waits 4m0s by design, beside the other chains)\n") {
@@ -98,7 +98,7 @@ func TestAWaitingChainGatedAloneNamesNoOtherChains(t *testing.T) {
 	out := captureStdout(t, func() {
 		errOut = captureStderr(t, func() { _ = runGate(context.Background(), []string{"-hollow-baseline", "", "a-hold"}) })
 	})
-	if !strings.Contains(errOut, "it starts now, so this gate takes at least that long") || !strings.Contains(errOut, "gate: waiting for a-hold, which waits 4m0s by design") ||
+	if !strings.Contains(errOut, "gate: a-hold waits 4m, started now; -skip-waits leaves it out") || !strings.Contains(errOut, "gate: waiting for a-hold, about 4m0s left") ||
 		strings.Contains(errOut+out, "other chains") || !strings.Contains(out, "slowest: a-hold 0s (waits 4m0s by design)\n") {
 		t.Errorf("with no other chain sent, no line mentions other chains:\n%s%s", errOut, out)
 	}
@@ -116,7 +116,7 @@ func TestAWaitingChainThatWritesOrReadsSharedStateRunsInTurn(t *testing.T) {
 		if code != 0 || len(f.calls) == 0 || f.calls[0][1] != "a-hold" {
 			t.Fatalf("%s: a waiting chain that %s runs in its turn, got %d, calls %v:\n%s", c.why, c.why, code, f.calls, out)
 		}
-		if !strings.Contains(errOut, "gate: a-hold waits 4m0s by design (its wait: steps); it runs in turn ("+c.why+"), so this gate takes at least that long") {
+		if !strings.Contains(errOut, "gate: a-hold waits 4m, in turn ("+c.why+"); -skip-waits leaves it out") {
 			t.Errorf("%s: the gate says why it waits in turn:\n%s", c.why, errOut)
 		}
 		if !strings.Contains(out, "slowest: a-hold 0s (waits 4m0s by design, in turn: "+c.why+")\n") {
@@ -142,14 +142,14 @@ func TestSkipWaitsLeavesOutAWaitingChainAndNeverCountsItAsPassing(t *testing.T) 
 		code     int
 		verdict  string
 	}{
-		{"the rest passed", nil, 3, "NO VERDICT: 2 of 3 chain(s) passed; -skip-waits left out a-hold: shrt gate a-hold runs it"},
-		{"another failed", map[string][]gateOutcome{"run cli-unique": {{code: 1, side: gateSidecar{Error: "boom"}}}}, 1, "; -skip-waits left out a-hold: shrt gate a-hold runs it"},
+		{"the rest passed", nil, 3, "NO VERDICT: 2 of 3 chains passed, 1 skipped"},
+		{"another failed", map[string][]gateOutcome{"run cli-unique": {{code: 1, side: gateSidecar{Error: "boom"}}}}, 1, "FAIL: 1 of 3 chains failed, 1 skipped; details: shrt verify <chain> -run latest"},
 	} {
 		f := gateWorkspace(t, c.outcomes)
 		appendFile(t, ".shrt/config.yaml", gateAuthConfig)
 		writeFile(t, ".shrt/chains/a-hold.yaml", waitingChain("a-hold", ""))
 		_, plain, _ := gateWithStderr(t)
-		if !strings.Contains(plain, "so this gate takes at least that long; -skip-waits leaves it out\n") {
+		if !strings.Contains(plain, ", started now, beside the other chains; -skip-waits leaves it out\n") {
 			t.Errorf("%s: the start line names the flag that leaves a waiting chain out:\n%s", c.name, plain)
 		}
 		f.calls = nil
@@ -161,11 +161,11 @@ func TestSkipWaitsLeavesOutAWaitingChainAndNeverCountsItAsPassing(t *testing.T) 
 		if exitCodeOf(err) != c.code || err == nil || !strings.HasSuffix(err.Error(), c.verdict) {
 			t.Errorf("%s: a skipped chain never counts as passing, got %d %v", c.name, exitCodeOf(err), err)
 		}
-		if !strings.HasPrefix(out, "SKIPPED    a-hold          (waits 4m by design; shrt gate a-hold runs it)\n") || strings.Contains(out, "time:") {
+		if !strings.HasPrefix(out, "SKIPPED a-hold  waits 4m; shrt gate a-hold runs it\n") || strings.Contains(out, "time:") {
 			t.Errorf("%s: the skipped chain keeps its place with its wait, and no time line counts it:\n%s", c.name, out)
 		}
-		if !strings.Contains(errOut, "gate: -skip-waits leaves out a-hold, which waits 4m by design (its wait: steps); shrt gate a-hold runs it\n") {
-			t.Errorf("%s: the gate says at once which chain it leaves out:\n%s", c.name, errOut)
+		if strings.Contains(errOut, "a-hold") {
+			t.Errorf("%s: the SKIPPED line alone says which chain it leaves out:\n%s", c.name, errOut)
 		}
 		for _, call := range f.calls {
 			if call[1] == "a-hold" {
@@ -187,11 +187,10 @@ func TestReproLeavesOutAWaitingChainUnlessKeptOrNamed(t *testing.T) {
 	out := captureStdout(t, func() {
 		errOut = captureStderr(t, func() { err = runGate(context.Background(), []string{"-hollow-baseline", "", "-repro"}) })
 	})
-	if exitCodeOf(err) != 3 || err == nil || !strings.HasSuffix(err.Error(), "NO VERDICT: 2 of 3 chain(s) passed; -repro left out a-hold: shrt gate a-hold runs it") || sent() {
+	if exitCodeOf(err) != 3 || err == nil || !strings.HasSuffix(err.Error(), "NO VERDICT: 2 of 3 chains passed, 1 skipped") || sent() {
 		t.Fatalf("-repro leaves a waiting chain out and never counts it as passing, got %d %v, calls %v:\n%s", exitCodeOf(err), err, f.calls, out)
 	}
-	if !strings.HasPrefix(out, "SKIPPED    a-hold          (waits 4m by design; shrt gate a-hold runs it)\n") ||
-		!strings.Contains(errOut, "gate: -repro leaves out a-hold, which waits 4m by design (its wait: steps); shrt gate a-hold runs it\n") {
+	if !strings.HasPrefix(out, "SKIPPED a-hold  waits 4m; shrt gate a-hold runs it\n") || strings.Contains(errOut, "a-hold") {
 		t.Errorf("the skipped chain keeps its place, and the start line names what left it out:\n%s%s", out, errOut)
 	}
 	for _, args := range [][]string{{"-repro", "-skip-waits=false"}, {"-repro", "a-hold", "cli-unique"}, nil} {

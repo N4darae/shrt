@@ -67,12 +67,8 @@ func checkSessions(ctx context.Context, e *env, profiles []string, at map[string
 			held, longest = append(held, p), max(longest, sessionHold(at[p]))
 		}
 	}
-	switch len(held) {
-	case 0:
-	case 1:
-		fmt.Printf("checking session lifetime of auth profile %s: holding a fresh token %s (-no-session-check skips this)\n", held[0], ageText(longest))
-	default:
-		fmt.Printf("checking session lifetime of auth profiles %s: holding fresh tokens up to %s (-no-session-check skips this)\n", strings.Join(held, ", "), ageText(longest))
+	if len(held) > 0 {
+		fmt.Printf("holding a fresh token of %s for %s to check session lifetime (-no-session-check skips this)\n", strings.Join(held, ", "), ageText(longest))
 	}
 	for _, p := range profiles {
 		wg.Add(1)
@@ -190,8 +186,7 @@ func gateCoverage(e *env) string {
 		if n == 0 {
 			return ""
 		}
-		return fmt.Sprintf("coverage: %d rpc(s) have no contract, so no planned probes (boundaries, other roles, missing tokens, "+
-			"read-backs); shrt contract init -all, then shrt contract plan -all -write", n)
+		return fmt.Sprintf("coverage: %s without a contract: shrt contract init -all, then shrt contract plan -all -write", plural(n, "rpc"))
 	}
 	called := map[string]bool{}
 	chains, _, _ := chain.LoadDirPartial(e.chainsDir())
@@ -211,6 +206,5 @@ func gateCoverage(e *env) string {
 	if n == 0 {
 		return ""
 	}
-	return fmt.Sprintf("coverage: %d rpc(s) with a contract have no chain calling them, so none of their planned probes run: "+
-		"shrt contract plan -all -write", n)
+	return fmt.Sprintf("coverage: %s with a contract and no chain: shrt contract plan -all -write", plural(n, "rpc"))
 }

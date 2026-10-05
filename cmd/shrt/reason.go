@@ -88,14 +88,14 @@ func (r reason) in(s said) string {
 	group := s.rpc != ""
 	name := func(step, call, profile string) string {
 		if !group {
-			return fmt.Sprintf("%s %s (%s)%s", rw(call), step, shortRPC(call), asText(profile))
+			return fmt.Sprintf("%s %s (%s)%s", rw(call), step, chain.RPCName(call), asText(profile))
 		}
 		out := ""
 		if step != s.step {
 			out = rw(call) + " " + step
 		}
 		if shortRPC(call) != s.rpc {
-			out += " (" + shortRPC(call) + ")"
+			out += " (" + chain.RPCName(call) + ")"
 		}
 		return strings.TrimSpace(out + asText(profile))
 	}
@@ -188,7 +188,7 @@ func requestLine(r reason, step string, sent func(string) string) string {
 		at = r.Step
 	}
 	if body := sent(at); body != "" {
-		return at + body
+		return capText(at+body, lineMax-4)
 	}
 	return ""
 }
@@ -233,7 +233,7 @@ func tellApart(e *env, r reason, path string) string {
 	}
 	var via []string
 	for _, t := range reads {
-		via = append(via, shortRPC(t.method.FullName)+" ("+t.path+")")
+		via = append(via, chain.RPCName(t.method.FullName)+" ("+t.path+")")
 	}
 	if len(via) == 0 && r.Other == asSent {
 		return fmt.Sprintf("%s answered %s as sent; only %s differs", r.Step, field, chain.RPCName(r.ReadRPC))

@@ -64,11 +64,11 @@ func TestGoldenGateRepro(t *testing.T) {
 		shop.addStockLostBug, shop.stockReadBug = c.lost, c.stale
 		out, code := shrtOut(t, "gate", "-repro", "-no-session-check", "-hollow-baseline", "")
 		fmt.Fprintf(&golden, "# %s\n$ shrt gate -repro  [exit %d]\n%s\n", c.name, code, out)
-		want := map[bool]string{true: "settled on the write add_stock (StockService/AddStock)", false: "settled on the read get_product (ProductService/GetProduct)"}[c.lost]
-		if code != 1 || !strings.Contains(out, want) || !strings.Contains(out, "repro: shrt run .shrt/scratch/shelf-slice-get_product.yaml  (3 of 3 steps, reproduced 3/3)") {
+		want := map[bool]string{true: "settled on the write add_stock: ", false: "settled on the read get_product: "}[c.lost]
+		if code != 1 || !strings.Contains(out, want) || !strings.Contains(out, "repro: shrt run .shrt/scratch/shelf-slice-get_product.yaml (3 of 3 steps, reproduced 3/3)") || strings.Contains(out, "unclear") {
 			t.Errorf("%s: the gate settles the unclear row with ListProducts and verifies a one-line repro, got %d:\n%s", c.name, code, out)
 		}
-		if !strings.Contains(out, "masks: none of the ") {
+		if !strings.Contains(out, "masks: none of 5 masked values") {
 			t.Errorf("%s: a sku differing by the run tag under a volatile path is no mask that hid a change:\n%s", c.name, out)
 		}
 	}
@@ -123,7 +123,7 @@ func TestAWriteAnsweredOtherThanStoredKeepsItsReadBackInTheRepro(t *testing.T) {
 	}
 	shop.confirmTotalBug = true
 	out, _ := shrtOut(t, "gate", "-repro", "-no-session-check", "-hollow-baseline", "")
-	want := "repro: shrt run .shrt/scratch/till-slice-confirm.yaml -keep-going  (5 of 5 steps, reproduced 3/3; the read-back fetch (FetchOrder) reads order.total_minor=500 where the write answered 0)"
+	want := "repro: shrt run .shrt/scratch/till-slice-confirm.yaml -keep-going (5 of 5 steps, reproduced 3/3, with read-back fetch)"
 	if !strings.Contains(out, "answered order.total_minor=0, but FetchOrder read 500") || !strings.Contains(out, want) {
 		t.Fatalf("the repro of a write the read-back contradicts keeps that read:\n%s", out)
 	}
@@ -162,8 +162,8 @@ func TestTheGateListsAMaskedValueThatDifferedBeyondTagsIdsAndTimestamps(t *testi
 		diff.Change{Step: "list_all", Path: "things", Kind: diff.KindLength, Want: 5, Got: 9, Mask: "things"},
 	)}})
 	out := gateMasks(context.Background(), []*gateChain{{name: "cli-thing-flow", spot: true}, {name: "cli-unique"}})
-	if out != "masks: 1 masked or volatile value(s) differed beyond run tags, ids and timestamps, leaving out 2 inside whole lists a step marks volatile, "+
-		"which hold whatever else the backend holds (cli-thing-flow list_all):\n  cli-thing-flow make thing.total (600 -> 400)" {
+	if out != "masks: 1 masked values differ beyond run tags, ids and timestamps; 2 inside whole volatile lists, not compared: cli-thing-flow list_all:\n"+
+		"  cli-thing-flow make thing.total (600 -> 400)" {
 		t.Fatalf("a timestamp and a run tag are what a mask is for, a total is not, and an unscoped list is counted apart:\n%s", out)
 	}
 }
@@ -231,20 +231,20 @@ func TestGateReproSettlesAnUnclearPairOfWritesOnACounter(t *testing.T) {
 		want, without []string
 	}{
 		{"the batch stores only its first line: a read right after it tells, and the confirm took 2 as approved", true, false, []string{
-			"settled on the write stock_batch (StockService/AddStockBatch) in restock: ProductService/GetProduct read product.qty_on_hand=2 right after it where the write answered 5, and confirm fell 2 from 2 to 0, as the approved run fell 2 from 5 to 3  (shrt run .shrt/scratch/restock-tell-apart-get_product.yaml)",
-			"settled on the write stock_batch (StockService/AddStockBatch) in restock-mid: get_mid (ProductService/GetProduct) read product.qty_on_hand=2 right after it where the write answered 5, and confirm fell 2 from 2 to 0, as the chain's expected values fell 2 from 5 to 3\n",
+			"settled on the write stock_batch in restock: GetProduct read qty_on_hand=2 after it where it answered 5; confirm fell 2, as in the approved run\n",
+			"settled on the write stock_batch in restock-mid: get_mid read qty_on_hand=2 after it where it answered 5; confirm fell 2, as expected\n",
 		}, []string{"in restock-late"}},
 		{"the confirm takes one more: the batch stored what it answered", false, true, []string{
-			"settled on the write confirm (OrderService/ConfirmOrder) in restock: ProductService/GetProduct read product.qty_on_hand=5 right after stock_batch, as it answered, and confirm fell 3 from 5 to 2 where the approved run fell 2 from 5 to 3  (shrt run",
-			"settled on the write confirm (OrderService/ConfirmOrder) in restock-mid: get_mid (ProductService/GetProduct) read product.qty_on_hand=5 right after stock_batch, as it answered, and confirm fell 3 from 5 to 2 where the chain's expected values fell 2 from 5 to 3\n",
+			"settled on the write confirm in restock: GetProduct read qty_on_hand=5 after stock_batch, as it answered; confirm fell 3 (approved: fell 2)\n",
+			"settled on the write confirm in restock-mid: get_mid read qty_on_hand=5 after stock_batch, as it answered; confirm fell 3 (expected: fell 2)\n",
 		}, []string{"in restock-late"}},
 		{"both: the reads cannot tell, so it stays unclear", true, true, []string{
-			"not settled: stock_batch or confirm in restock: ProductService/GetProduct read product.qty_on_hand=2 right after stock_batch where it answered 5, and confirm fell 3 from 2 to -1 where the approved run fell 2 from 5 to 3  (shrt run",
+			"not settled: stock_batch or confirm in restock: GetProduct read qty_on_hand=2 after stock_batch where it answered 5; confirm fell 3 (approved: fell 2)\n",
 		}, []string{"in restock-late"}},
 	} {
 		shop.batchFirstLineBug, shop.confirmExtraUnit = c.batch, c.extra
 		out, code := shrtOut(t, "gate", "-repro", "-no-session-check", "-hollow-baseline", "")
-		_, block, _ := strings.Cut(out, "repro, for each row of failures by suspect rpc:\n")
+		_, block, _ := strings.Cut(out, "failures by suspect rpc:\n")
 		for _, want := range c.want {
 			if code != 1 || !strings.Contains(block, want) {
 				t.Errorf("%s: want %q, got %d:\n%s", c.name, want, code, out)
@@ -315,13 +315,13 @@ func TestARunOfTheGatesReproNamesTheSuspectTheGateRowNamed(t *testing.T) {
 	}
 	shop.confirmExtraUnit = true
 	out, _ := shrtOut(t, "gate", "-repro", "-no-session-check", "-hollow-baseline", "")
-	if !strings.Contains(out, "suspect write confirm (OrderService/ConfirmOrder)") || !strings.Contains(out, "repro: shrt run .shrt/scratch/shelfcheck-slice-read_back.yaml  (") {
+	if !strings.Contains(out, "suspect write confirm (ConfirmOrder)") || !strings.Contains(out, "repro: shrt run .shrt/scratch/shelfcheck-slice-read_back.yaml (") {
 		t.Fatalf("the list read 3 after add_stock, so the gate names the confirm:\n%s", out)
 	}
 	if slice := string(mustRead(t, ".shrt/scratch/shelfcheck-slice-read_back.yaml")); !strings.Contains(slice, "- id: list\n") {
 		t.Fatalf("the repro keeps the read that cleared add_stock, which the read-back does not need to fail:\n%s", slice)
 	}
-	if out, _ := shrtOut(t, "run", ".shrt/scratch/shelfcheck-slice-read_back.yaml", "-repeat", "3"); !strings.Contains(out, "suspect write confirm (OrderService/ConfirmOrder)") || strings.Contains(out, "unclear") {
+	if out, _ := shrtOut(t, "run", ".shrt/scratch/shelfcheck-slice-read_back.yaml", "-repeat", "3"); !strings.Contains(out, "suspect write confirm (ConfirmOrder)") || strings.Contains(out, "unclear") {
 		t.Fatalf("run on the gate's repro names the gate row's suspect, not add_stock or confirm:\n%s", out)
 	}
 }
@@ -405,8 +405,8 @@ func TestGateReproFirmsUpARowsTriggerThatRestsOnOneCall(t *testing.T) {
 		refuse func(int) bool
 		want   string
 	}{
-		{func(n int) bool { return n >= 3 }, "    trigger, firmed by -repro in place of the row's line above: fails with lines of 3+ items (2 calls: 3, 4); passes with lines of up to 2 items (3 calls: 1, 2)\n    repro: "},
-		{func(n int) bool { return n == 3 }, "    trigger above does not hold: sent again with lines of 4 items, the call passed\n    repro: "},
+		{func(n int) bool { return n >= 3 }, "    trigger: fails with lines of 3+ items (2 calls: 3, 4); passes with lines of up to 2 items (3 calls: 1, 2)\n    repro: "},
+		{func(n int) bool { return n == 3 }, "    trigger: none: sent again with lines of 4 items, the call passed\n    repro: "},
 	} {
 		shop := newFakeShop()
 		chdirToFakeShop(t, shop)
@@ -420,8 +420,8 @@ func TestGateReproFirmsUpARowsTriggerThatRestsOnOneCall(t *testing.T) {
 		}
 		shop.refuseOrder = c.refuse
 		out, _ := shrtOut(t, "gate", "-repro", "-no-session-check", "-hollow-baseline", "")
-		if !strings.Contains(out, "    trigger: fails with lines of 3+ items (1 call); passes with lines of up to 2 items (2 calls: 1, 2)\n") || !strings.Contains(out, c.want) {
-			t.Fatalf("under -repro a 3-line order refused beside a 1- and 2-line one is sent with 4 and 2 lines, and the repro block says what they showed:\n%s", out)
+		if strings.Contains(out, "    trigger: fails with lines of 3+ items (1 call); passes with lines of up to 2 items (2 calls: 1, 2)\n") || !strings.Contains(out, c.want) {
+			t.Fatalf("under -repro a 3-line order refused beside a 1- and 2-line one is sent with 4 and 2 lines, and the row's trigger says what they showed:\n%s", out)
 		}
 	}
 }

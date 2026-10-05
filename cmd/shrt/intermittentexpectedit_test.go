@@ -17,7 +17,7 @@ func TestAnExpectationEditDoesNotTurnAnIntermittentFindingIntoARegression(t *tes
 	f.set("internal", 500, 2)
 	out, err := verifyOnce(t, ctx)
 	wantExit1(t, "fetch_again failed", err, out)
-	if !strings.Contains(err.Error(), "intermittent failure at ThingService/Fetch") || strings.HasPrefix(err.Error(), "regression") {
+	if !strings.Contains(err.Error(), "intermittent failure at Fetch") || strings.HasPrefix(err.Error(), "regression") {
 		t.Fatalf("an added expectation at fetch_again cannot explain or cause its internal error, so the verdict is the intermittent finding: %v\n%s", err, out)
 	}
 	if strings.Contains(out, "explained by the failed changed expectation") {

@@ -29,26 +29,26 @@ func TestARowSaysHowFarAWriteMovedAFieldAgainstTheApprovedRun(t *testing.T) {
 	cancel := shopStep("cancel", shopCancel, `{"order":{"id_order":"o1"},`+shopOK+`}`, "order")
 	e := effectsEnv(t)
 	for _, c := range []struct {
-		name               string
-		e                  *env
-		rec                *runner.Record
-		effect, times, why string
+		name          string
+		e             *env
+		rec           *runner.Record
+		effect, times string
 	}{
-		{"the confirm took twice the approved fall", e, confirmRecord("p1", "10", "6"), "fell 4 from 10 to 6 where the approved run fell 2 from 10 to 8", "2x", ""},
-		{"half the approved fall is a simple fraction", e, confirmRecord("p1", "10", "9"), "fell 1 from 10 to 9 where the approved run fell 2 from 10 to 8", "1/2x", ""},
-		{"the same fall from another start has no ratio", e, confirmRecord("p1", "9", "7"), "fell 2 from 9 to 7 where the approved run fell 2 from 10 to 8", "", ""},
-		{"a write that may move the field between them says nothing", e, confirmRecord("p1", "10", "6", cancel), "", "", "cancel acts on that record between"},
-		{"without contracts the confirm is no known counter, so nothing", &env{}, confirmRecord("p1", "10", "6"), "", "", notMeasured},
+		{"the confirm took twice the approved fall", e, confirmRecord("p1", "10", "6"), "fell 4 from 10 to 6 where the approved run fell 2 from 10 to 8", "2x"},
+		{"half the approved fall is a simple fraction", e, confirmRecord("p1", "10", "9"), "fell 1 from 10 to 9 where the approved run fell 2 from 10 to 8", "1/2x"},
+		{"the same fall from another start has no ratio", e, confirmRecord("p1", "9", "7"), "fell 2 from 9 to 7 where the approved run fell 2 from 10 to 8", ""},
+		{"a write that may move the field between them says nothing", e, confirmRecord("p1", "10", "6", cancel), "", ""},
+		{"without contracts the confirm is no known counter, so nothing", &env{}, confirmRecord("p1", "10", "6"), "", ""},
 	} {
-		effect, times, why := effectOf(runAttribution(c.e, c.rec), spot, read)
-		if effect != c.effect || times != c.times || why != c.why {
-			t.Errorf("%s: got %q %q %q, want %q %q %q", c.name, effect, times, why, c.effect, c.times, c.why)
+		effect, times := effectOf(runAttribution(c.e, c.rec), spot, read)
+		if effect != c.effect || times != c.times {
+			t.Errorf("%s: got %q %q, want %q %q", c.name, effect, times, c.effect, c.times)
 		}
 	}
 	noStock := confirmRecord("p1", "10", "6")
 	noStock.Steps = append(noStock.Steps[:1], noStock.Steps[2:]...)
-	if effect, _, why := effectOf(runAttribution(e, noStock), spot, read); effect != "" || why != noEarlier {
-		t.Errorf("no earlier read of the product, so no effect: %q %q", effect, why)
+	if effect, _ := effectOf(runAttribution(e, noStock), spot, read); effect != "" {
+		t.Errorf("no earlier read of the product, so no effect: %q", effect)
 	}
 }
 
@@ -65,8 +65,8 @@ func TestAnEffectIsMeasuredOnlyAcrossACounterWriteFromThatRecordsOwnEarlierValue
 		)
 	}
 	read := gateItem{Step: "fetch_order_after_create_order_3_lines", Path: "order.total_minor", Reason: reason{Kind: reasonWrite, Step: "create_order_3_lines", RPC: shopOrder}}
-	if effect, times, why := effectOf(runAttribution(e, created("21595")), created("58630").Steps, read); effect != "" || times != "" || why != notMeasured {
-		t.Errorf("the write that created the order declares no increase or decrease of its total, so nothing is measured from another order's total: %q %q %q", effect, times, why)
+	if effect, times := effectOf(runAttribution(e, created("21595")), created("58630").Steps, read); effect != "" || times != "" {
+		t.Errorf("the write that created the order declares no increase or decrease of its total, so nothing is measured from another order's total: %q %q", effect, times)
 	}
 	shelved := func(rec *runner.Record) *runner.Record {
 		for _, st := range rec.Steps {
@@ -78,7 +78,7 @@ func TestAnEffectIsMeasuredOnlyAcrossACounterWriteFromThatRecordsOwnEarlierValue
 	neighbour := shopStep("get_neighbour", shopGet, `{"product":{"id_product":"p2","id_shelf":"s1","qty_on_hand":"12"},`+shopOK+`}`)
 	other.Steps = slices.Insert(other.Steps, 2, neighbour.StepRecord)
 	confirm := gateItem{Step: "get", Path: "product.qty_on_hand", Reason: reason{Kind: reasonWrite, Step: "confirm", RPC: shopConfirm}}
-	effect, times, _ := effectOf(runAttribution(e, other), shelved(confirmRecord("p1", "10", "8")).Steps, confirm)
+	effect, times := effectOf(runAttribution(e, other), shelved(confirmRecord("p1", "10", "8")).Steps, confirm)
 	if effect != "fell 4 from 10 to 6 where the approved run fell 2 from 10 to 8" || times != "2x" {
 		t.Errorf("another product on the same shelf is no earlier value of this one, the stock added to this one is: %q %q", effect, times)
 	}
@@ -107,22 +107,22 @@ func TestTheEarlierValueIsNeverARefusedLineAndIsTheLastAppliedLineOfABatch(t *te
 	for _, c := range []struct {
 		name, lines, after string
 		r                  reason
-		effect, times, why string
+		effect, times      string
 	}{
-		{"the batch stored only its refused first line and the confirm took 1 as approved: the note spans both suspects, so it says nothing", refused + "," + applied, "-1", both, "", "", notMeasured},
-		{"the confirm alone took 2: measured from the batch's last applied line, 1", refused + "," + applied, "-1", confirm, "fell 2 from 1 to -1 where the approved run fell 1 from 1 to 0", "2x", ""},
-		{"a batch whose only line for the record was refused is no earlier value, and it may move the field", refused, "-2", confirm, "", "", "stock_batch acts on that record between"},
+		{"the batch stored only its refused first line and the confirm took 1 as approved: the note spans both suspects, so it says nothing", refused + "," + applied, "-1", both, "", ""},
+		{"the confirm alone took 2: measured from the batch's last applied line, 1", refused + "," + applied, "-1", confirm, "fell 2 from 1 to -1 where the approved run fell 1 from 1 to 0", "2x"},
+		{"a batch whose only line for the record was refused is no earlier value, and it may move the field", refused, "-2", confirm, "", ""},
 	} {
 		rec, read := guardRecord(c.lines, c.after, c.r)
-		effect, times, why := effectOf(runAttribution(e, rec), approved.Steps, read)
-		if effect != c.effect || times != c.times || why != c.why {
-			t.Errorf("%s: got %q %q %q, want %q %q %q", c.name, effect, times, why, c.effect, c.times, c.why)
+		effect, times := effectOf(runAttribution(e, rec), approved.Steps, read)
+		if effect != c.effect || times != c.times {
+			t.Errorf("%s: got %q %q, want %q %q", c.name, effect, times, c.effect, c.times)
 		}
 	}
 	rec, read := guardRecord(refused+","+applied, "-1", confirm)
 	rec.Steps[4].BodyRefs = map[string]string{"a": "${order_fits.x}"}
-	if effect, _, why := effectOf(runAttribution(e, rec), approved.Steps, read); effect != "" || why != notMeasured {
-		t.Errorf("a read the suspects were weighed for without the batch takes no earlier value from the batch's answer, which may not be what it stored: %q %q", effect, why)
+	if effect, _ := effectOf(runAttribution(e, rec), approved.Steps, read); effect != "" {
+		t.Errorf("a read the suspects were weighed for without the batch takes no earlier value from the batch's answer, which may not be what it stored: %q", effect)
 	}
 }
 
@@ -142,10 +142,9 @@ func TestARatioIsAWholeMultipleOrASimpleFraction(t *testing.T) {
 func TestARowClaimsARatioOnEveryFailingStepOnlyWhenEachHasIt(t *testing.T) {
 	at := func(step, times string) gateRef {
 		it := gateItem{Step: step, Path: "product.qty_on_hand", Times: times}
-		switch times {
-		case "-", "list":
-			it.Times, it.Unmeasured = "", map[string]string{"list": "read in a list of several records", "-": notMeasured}[times]
-		default:
+		if times == "-" {
+			it.Times = ""
+		} else {
 			it.Effect = "fell 4 from 10 to 6 where the approved run fell 2 from 10 to 8"
 		}
 		return gateRef{chain: "c", it: it}
@@ -158,15 +157,12 @@ func TestARowClaimsARatioOnEveryFailingStepOnlyWhenEachHasIt(t *testing.T) {
 	}{
 		{"all 2x", []gateRef{at("a", "2x"), at("b", "2x")}, " on every failing step"},
 		{"a step of another field is not one of them", []gateRef{at("a", "2x"), at("b", "2x"), status}, " on every failing step"},
-		{"one not measured", []gateRef{at("a", "2x"), at("b", "2x"), at("c", "-")}, " on 2 of 3 failing steps; c not measured"},
-		{"the first unmeasured step says why, the rest are counted", []gateRef{at("a", "2x"), at("b", "2x"), at("list_prefix", "list"), at("d", "-")},
-			" on 2 of 4 failing steps; list_prefix not measured (read in a list of several records) (+1 more)"},
-		{"a write between is named as acting on the record, not as a second suspect", []gateRef{at("a", "2x"), at("b", "2x"), {chain: "c", it: gateItem{Step: "list_prefix", Path: "product.qty_on_hand", Unmeasured: "cancel_two acts on that record between"}}},
-			" on 2 of 3 failing steps; list_prefix not measured (cancel_two acts on that record between)"},
+		{"one not measured", []gateRef{at("a", "2x"), at("b", "2x"), at("c", "-")}, " on 2 of 3 failing steps"},
+		{"each unmeasured step is counted", []gateRef{at("a", "2x"), at("b", "2x"), at("c", "-"), at("d", "-")}, " on 2 of 4 failing steps"},
 		{"one other ratio", []gateRef{at("a", "2x"), at("b", "3x")}, ""},
 	} {
 		gr := &gateGroup{example: c.refs[0].it, refs: c.refs}
-		if got, want := gr.effectNote(), "; qty_on_hand fell 4 from 10 to 6 where the approved run fell 2 from 10 to 8: 2x"+c.want; got != want {
+		if got, want := gr.effectNote(), "qty_on_hand fell 4 from 10 to 6 where the approved run fell 2 from 10 to 8: 2x"+c.want; got != want {
 			t.Errorf("%s: got %q, want %q", c.name, got, want)
 		}
 	}
@@ -174,7 +170,7 @@ func TestARowClaimsARatioOnEveryFailingStepOnlyWhenEachHasIt(t *testing.T) {
 
 func TestAKeptRedLineSaysWhenThePinWasMade(t *testing.T) {
 	c := &chain.Chain{Description: "Slice of x.\nVERIFIED by 'shrt chain slice -verify': reproduced on 2026-09-28: slice run a gave step s the verdict it had in source run b."}
-	if got := pinnedOn(c); got != "; pinned 2026-09-28" {
+	if got := pinnedOn(c); got != "pinned 2026-09-28: " {
 		t.Errorf("got %q", got)
 	}
 	if got := pinnedOn(&chain.Chain{}); got != "" {

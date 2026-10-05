@@ -94,7 +94,7 @@ func TestKeepGoingRunsPastFailuresAndHoldsBackOnlyWhatReadsThem(t *testing.T) {
 				}
 			}},
 		{name: "a refusal is named as a refusal", c: flow(skipAuth(fetch("probe", "x")), fetch("next", "${probe.id}")),
-			errs: map[string]string{"next": "was refused before a response body existed (transport unauthenticated)"}},
+			errs: map[string]string{"next": "was refused (transport unauthenticated)"}},
 		{name: "a skip reason shared by steps is given once", setup: refusedCreate("out_of_stock"), c: flow(
 			step("create", "ThingService/Create", thing("w"), okExpect()...), fetch("fetch_one", "${create.id}"), fetch("fetch_two", "${create.id}")),
 			check: func(t *testing.T, rec *runner.Record, f *fakeServer) {

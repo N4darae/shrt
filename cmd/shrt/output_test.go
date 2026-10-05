@@ -96,7 +96,7 @@ func TestRunOutputPieces(t *testing.T) {
 	for _, id := range []string{"a", "b", "c", "d", "e", "f", "g"} {
 		c.Steps = append(c.Steps, &chain.Step{ID: id})
 	}
-	if got := neverRanLine(c, &runner.Record{Status: runner.StatusFailed, Steps: []*runner.StepRecord{{ID: "a"}}}); !strings.HasPrefix(got, "6 later step(s) were not run (b, c, d and 3 more): ") {
+	if got := neverRanLine(c, &runner.Record{Status: runner.StatusFailed, Steps: []*runner.StepRecord{{ID: "a"}}}); got != "not run: 6 later steps (b, c, d and 3 more); -keep-going runs them" {
 		t.Errorf("the steps a stopped run never ran are capped at three names, got %q", got)
 	}
 	added := &diff.Report{Changes: []diff.Change{
@@ -237,13 +237,13 @@ func TestRunPrintsWhatItDidNotRun(t *testing.T) {
 	}
 	for _, c := range []runCase{
 		{"a run that stops counts the steps it never ran", thing, threeStepFlow, []string{"cli-thing-flow", "-quiet"}, 1,
-			[]string{"2 later step(s) were not run (fetch, fetch_again)", "-keep-going"}, nil, nil},
-		{"-keep-going leaves no step unrun", thing, threeStepFlow, []string{"cli-thing-flow", "-quiet", "-keep-going"}, 1, nil, []string{"were not run"}, nil},
+			[]string{"not run: 2 later steps (fetch, fetch_again); -keep-going runs them"}, nil, nil},
+		{"-keep-going leaves no step unrun", thing, threeStepFlow, []string{"cli-thing-flow", "-quiet", "-keep-going"}, 1, nil, []string{"not run:"}, nil},
 		{"-keep-going prints only the failures, a group per cause and a passed count", thing, keepGoingFlow, []string{"cli-keep-going", "-keep-going"}, 1,
-			[]string{"FAIL   2 create_bad", "3 step(s) unevaluated behind create_bad: fetch_compared answered id=", "2 step(s) passed (-v prints every step)\n", "-keep-going: 4 of 6 steps did not pass (above)"},
+			[]string{"FAIL   2 create_bad", "3 steps unevaluated behind create_bad: fetch_compared answered id=", "2 steps passed\n", "-keep-going: 4 of 6 steps did not pass\n"},
 			[]string{"ok     1 create", "fetch_bad ", "not evaluated", "not sent:"}, nil},
 		{"-keep-going -v prints every step instead of the counts", thing, keepGoingFlow, []string{"cli-keep-going", "-keep-going", "-v"}, 1,
-			[]string{"ok     1 create", "SKIP   3 fetch_bad", "not evaluated: ${create_bad.id}"}, []string{"unevaluated behind", "step(s) passed"}, nil},
+			[]string{"ok     1 create", "SKIP   3 fetch_bad", "not evaluated: ${create_bad.id}"}, []string{"unevaluated behind", "steps passed"}, nil},
 		{"-keep-going against a dead target prints one line for the unsent steps", deadCLITarget, threeCreates, []string{"cli-three", "-keep-going", "-save=false"}, 3,
 			nil, []string{" 3 three"}, map[string]int{"every remaining step": 1}},
 		{"an errored run exits 3", deadCLITarget, "", []string{"cli-thing-flow", "-quiet", "-save=false"}, 3, nil, nil, nil},
@@ -353,7 +353,7 @@ steps:
 	writeFile(t, ".shrt/chains/cli-three-flow.yaml", strings.Replace(flow, "not_empty: true", "equals: nope", 1))
 	var err error
 	out := captureStdout(t, func() { err = runVerify(ctx, []string{"cli-three-flow", "-quiet", "-save=false"}) })
-	if err == nil || strings.Contains(out, "length") || !strings.Contains(out, "first: create (ThingService/Create)") || strings.Contains(out, "first failing step") ||
+	if err == nil || strings.Contains(out, "length") || !strings.Contains(out, "first: create (Create)") || strings.Contains(out, "first failing step") ||
 		!strings.Contains(out, "[fetch] not_reached") || strings.Contains(out, "[other] not_reached") {
 		t.Fatalf("verify names the first failure, the step held behind it, and still compares the independent one: %v\n%s", err, out)
 	}

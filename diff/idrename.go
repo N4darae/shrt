@@ -167,7 +167,7 @@ func (r *Report) inconsistentIDGroups() (map[int]string, map[int]bool) {
 			folded[i] = true
 		}
 		c := r.Changes[idx[0]]
-		lines[idx[0]] = fmt.Sprintf("  [%s] %-10s %s at %d item(s): %s, so each now points at something else than it did%s; e.g. %s %s\n",
+		lines[idx[0]] = fmt.Sprintf("  [%s] %s %s at %d items: %s, so each now points at something else than it did%s; e.g. %s %s\n",
 			chain.ListSome(steps, 3), c.Kind, k, len(idx), inconsistentID, r.oneValue(steps, c.Path), c.Path, c.describeValues())
 	}
 	return lines, folded

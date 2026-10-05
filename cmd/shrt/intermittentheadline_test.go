@@ -19,7 +19,7 @@ func TestRunHeadlineLeadsWithADeterministicFailureBesideAnIntermittentOne(t *tes
 	out := captureStdout(t, func() { err = runRun(ctx, []string{"cli-flaky", "-quiet", "-keep-going"}) })
 	wantExit1(t, "run", err, out)
 	msg := err.Error()
-	if !strings.Contains(out, "FINDING: intermittent failure at ThingService/Fetch") {
+	if !strings.Contains(out, "FINDING: intermittent failure at Fetch") {
 		t.Fatalf("fetch_again's internal error is still reported as intermittent:\n%s", out)
 	}
 	det := strings.Index(msg, "fetch3")
@@ -36,8 +36,8 @@ func TestVerifyHeadlineCallsAnIntermittentFirstChangeIntermittentBesideARegressi
 	out, err := verifyOnce(t, ctx)
 	wantExit1(t, "verify", err, out)
 	head, _, _ := strings.Cut(out, "\n")
-	if !strings.Contains(out, "FINDING: intermittent failure at ThingService/Fetch") ||
-		!strings.Contains(head, "DRIFT (intermittent; also regression at 1 step(s))") || !strings.Contains(head, "first: fetch_again") {
+	if !strings.Contains(out, "FINDING: intermittent failure at Fetch") ||
+		!strings.Contains(head, "DRIFT (intermittent; also regression at 1 step)") || !strings.Contains(head, "first: fetch_again") {
 		t.Fatalf("fetch_again failed intermittently and fetch3 changed, so the headline calls the first change intermittent:\n%s", out)
 	}
 }

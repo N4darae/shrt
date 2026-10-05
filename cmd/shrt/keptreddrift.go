@@ -19,7 +19,7 @@ var reproducedOn = regexp.MustCompile(`reproduced on (\d{4}-\d{2}-\d{2})`)
 
 func pinnedOn(c *chain.Chain) string {
 	if m := reproducedOn.FindStringSubmatch(c.Description); m != nil {
-		return "; pinned " + m[1]
+		return "pinned " + m[1] + ": "
 	}
 	return ""
 }

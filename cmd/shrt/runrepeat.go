@@ -157,7 +157,7 @@ func (v *repeatVerdict) text(e *env, c *chain.Chain, first *runner.Record) strin
 		fmt.Fprintf(&b, "reproduced %d/%d: %s failed the same way in every run\n", v.Same, v.Repeat, chain.ListSome(v.Failed, 3))
 		for _, id := range v.Failed {
 			st, _ := first.Step(id)
-			fmt.Fprintf(&b, "  %s (%s): %s\n", id, shortRPC(st.Call), answeredText(st))
+			fmt.Fprintf(&b, "  %s (%s): %s\n", id, chain.RPCName(st.Call), answeredText(st))
 			for _, x := range st.Expect {
 				if !x.Passed && x.Rule != "unevaluated" {
 					fmt.Fprintf(&b, "    failed: %s %s\n", x.Path, chain.WantGot(x.Rule, quoted(x.Want), quoted(x.Got)))
@@ -168,14 +168,14 @@ func (v *repeatVerdict) text(e *env, c *chain.Chain, first *runner.Record) strin
 			fmt.Fprintf(&b, "  %s\n", line)
 		}
 	case repeatPassed:
-		fmt.Fprintf(&b, "passed %d/%d: no step failed in any run, so there is no failure to reproduce\n", v.Same, v.Repeat)
+		fmt.Fprintf(&b, "passed %d/%d: no step failed in any run\n", v.Same, v.Repeat)
 	case sliceNotReproduced:
-		fmt.Fprintf(&b, "NOT REPRODUCED: %d of %d runs failed as run 1 did; below, source is run 1\n", v.Same, len(v.Runs))
+		fmt.Fprintf(&b, "NOT REPRODUCED: %d of %d runs failed as run 1 did\n", v.Same, len(v.Runs))
 		for _, d := range v.Differences {
 			fmt.Fprintf(&b, "  %s\n", d)
 		}
 	case sliceDidNotRun:
-		fmt.Fprintf(&b, "DID NOT RUN: %s, so the runs have no verdict to compare; re-run\n", v.Reason)
+		fmt.Fprintf(&b, "DID NOT RUN: %s\n", v.Reason)
 	}
 	if line := neverRanLine(c, first); line != "" && v.Outcome != sliceDidNotRun {
 		fmt.Fprintf(&b, "  %s\n", line)
@@ -184,9 +184,8 @@ func (v *repeatVerdict) text(e *env, c *chain.Chain, first *runner.Record) strin
 	if v.Records != "" {
 		where = " in " + v.Records
 	}
-	fmt.Fprintf(&b, "  runs %s%s; the chain ran as written and is unchanged\n", strings.Join(v.Runs, ", "), where)
-	fmt.Fprintf(&b, "exit %d: %s; -repeat exits 0 when every run failed the same way, 1 when the runs differ or none failed, 3 when a run got no answer\n",
-		v.exitCode(), v.outcomeText())
+	fmt.Fprintf(&b, "  runs %s%s\n", strings.Join(v.Runs, ", "), where)
+	fmt.Fprintf(&b, "exit %d: %s\n", v.exitCode(), v.outcomeText())
 	return b.String()
 }
 

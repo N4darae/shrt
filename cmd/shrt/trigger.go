@@ -376,7 +376,7 @@ func triggerOf(fails, passes []rowCall) (string, []string) {
 		}
 		failSide := triggerSide(fails, passes, apart, failNote)
 		if failNote+passNote != "" {
-			failSide = strings.Replace(failSide, "as ", "when "+fails[0].call+" itself is sent as ", 1)
+			failSide = strings.Replace(failSide, "as ", "when "+fails[0].call+" is sent as ", 1)
 		}
 		line = "trigger: fails " + failSide + "; passes " + triggerSide(passes, fails, apart, passNote)
 	case len(apart) == 0 && len(pairs) == 1:
@@ -407,28 +407,22 @@ func ownProfile(fails, passes []rowCall) (string, string) {
 		for _, c := range n {
 			maps.Copy(used, c.before)
 		}
-		failNote = share(n, fails) + andList(sortedKeys(used)) + ", so the creator need not be " + strings.Join(bad, " or ")
-		if own := slices.DeleteFunc(slices.Clone(fails), func(c rowCall) bool { return !after(c) }); len(own) > 0 {
-			failNote += "; " + share(own, fails) + andList(bad) + " too"
-		}
+		failNote = share(n, fails) + andList(sortedKeys(used))
 	}
 	if n := slices.DeleteFunc(slices.Clone(passes), func(c rowCall) bool { return !after(c) }); len(n) > 0 {
-		passNote = share(n, passes) + andList(bad) + ", so that alone does not fail it"
+		passNote = share(n, passes) + andList(bad)
 	}
 	return failNote, passNote
 }
 
 func share(some, all []rowCall) string {
-	k, n := numCalls(some), numCalls(all)
-	switch {
-	case n == 1:
-		return "it acts on records created as "
-	case k == n:
-		return "each acts on records created as "
-	case k == 1:
-		return "1 of them acts on records created as "
+	switch k, n := numCalls(some), numCalls(all); {
+	case k < n:
+		return fmt.Sprintf("%d on records created as ", k)
+	case n > 1:
+		return "all on records created as "
 	}
-	return fmt.Sprintf("%d of them act on records created as ", k)
+	return "on records created as "
 }
 
 func everyCall(fails []rowCall) string {

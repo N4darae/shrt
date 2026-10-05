@@ -36,12 +36,12 @@ func TestTheGateHoldsAFreshTokenAndReportsSessionsThatEndEarly(t *testing.T) {
 	cacheASessionToken(t)
 	time.Sleep(400 * time.Millisecond)
 	out, code := runGateOut(t)
-	if code != 1 || !strings.Contains(out, "checking session lifetime of auth profile default: holding a fresh token 1.") ||
+	if code != 1 || !strings.Contains(out, "holding a fresh token of default for 1.") ||
 		!strings.Contains(out, "FINDING: sessions of auth profile default end early: fresh tokens were refused at 1.") ||
 		!strings.Contains(out, "s although the login said 3600s") {
 		t.Fatalf("a fresh token refused after the long hold and another at half of it is a finding, exit 1, got %d:\n%s", code, out)
 	}
-	if strings.Contains(out, "refused early once") || strings.Count(out, "checking session lifetime") != 1 || !strings.Contains(out, "(-no-session-check skips this)\n") {
+	if strings.Contains(out, "refused early once") || strings.Count(out, "to check session lifetime") != 1 || !strings.Contains(out, "(-no-session-check skips this)\n") {
 		t.Fatalf("the check settles the note and says once that it waits:\n%s", out)
 	}
 }
@@ -73,7 +73,7 @@ func TestTheGateCallsAnEarlyRefusalARestartWhenAHeldFreshTokenIsAccepted(t *test
 	sessionHoldCap = saved
 	restart()
 	out, code = runGateOut(t, "-no-session-check")
-	if code != 0 || strings.Contains(out, "checking session lifetime") || !strings.Contains(out, "note: a token of auth profile default was refused early once") {
+	if code != 0 || strings.Contains(out, "to check session lifetime") || !strings.Contains(out, "note: a token of auth profile default was refused early once") {
 		t.Fatalf("-no-session-check leaves the note, got %d:\n%s", code, out)
 	}
 }
@@ -125,7 +125,7 @@ func TestTheGateEndsWithOneCoverageLineWhenNoContractPlansTheSuite(t *testing.T)
 	gateWorkspace(t, nil)
 	out, code := runGateOut(t)
 	if code != 0 || strings.Count(out, "coverage: ") != 1 ||
-		!strings.Contains(out, "rpc(s) have no contract, so no planned probes (boundaries, other roles, missing tokens, read-backs); shrt contract init -all, then shrt contract plan -all -write\n") {
+		!strings.Contains(out, "coverage: 5 rpcs without a contract: shrt contract init -all, then shrt contract plan -all -write\n") {
 		t.Fatalf("no overlay: one coverage line, and the exit code stays the gate's, got %d:\n%s", code, out)
 	}
 	captureStdout(t, func() {
@@ -135,7 +135,7 @@ func TestTheGateEndsWithOneCoverageLineWhenNoContractPlansTheSuite(t *testing.T)
 	})
 	out, code = runGateOut(t)
 	if code != 0 || strings.Count(out, "coverage: ") != 1 ||
-		!strings.Contains(out, "rpc(s) with a contract have no chain calling them, so none of their planned probes run: shrt contract plan -all -write\n") {
+		!strings.Contains(out, "coverage: 3 rpcs with a contract and no chain: shrt contract plan -all -write\n") {
 		t.Fatalf("contracts for rpcs no chain calls: one coverage line, exit unchanged, got %d:\n%s", code, out)
 	}
 }

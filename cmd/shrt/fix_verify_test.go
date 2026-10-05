@@ -78,11 +78,11 @@ func TestCLIVerifyOfFieldsTheDescriptorDidNotDeclare(t *testing.T) {
 		forget, fails bool
 		has, lacks    []string
 	}{
-		{"a field declared since and never sent is not drift", 0, 0, false, false, []string{"not counted: "}, nil},
+		{"a field declared since and never sent is not drift", 0, 0, false, false, []string{"no drift"}, nil},
 		{"a new field sent with a value is a change", 0, 7, false, true, []string{"unexpected total"}, nil},
 		{"an undeclared field on the wire that is gone now is a change", 7, 0, false, true, []string{"total", "want=7"}, []string{"not on the wire (left at the proto3 default, the same bytes"}},
 		{"gone now is a change even when the safe spot did not record its value", 7, 0, true, true, []string{"total"}, []string{"not on the wire (left at the proto3 default, the same bytes"}},
-		{"declared now with the same value is no change", 7, 7, false, false, []string{"not counted: "}, []string{"unexpected total"}},
+		{"declared now with the same value is no change", 7, 7, false, false, []string{"no drift"}, []string{"unexpected total"}},
 		{"declared now with another value is a change", 7, 8, false, true, []string{"want=7", "got=8"}, nil},
 		{"a value an older safe spot did not record is not compared", 7, 7, true, false, []string{"not compared", "fetch total"}, []string{"unexpected total"}},
 	} {
@@ -237,7 +237,7 @@ func TestCLIVerifyPairsRenamedStepsAndScopesChainChanges(t *testing.T) {
 			[]string{"f1 -> fa", "f2 -> fb"}, nil},
 		{"a change at renamed same-call steps is judged under the new name", fixSameCallChain, "pair-flow",
 			strings.NewReplacer("- id: f1\n", "- id: fa\n", "- id: f2\n", "- id: fb\n").Replace, 751, regression,
-			[]string{"[fa] changed    total want=750 got=751"}, []string{"missing", "unexpected step", "chain change"}},
+			[]string{"[fa] changed total want=750 got=751"}, []string{"missing", "unexpected step", "chain change"}},
 		{"swapping the ids of two same-call steps is two renames", fixSameCallChain, "pair-flow",
 			strings.NewReplacer("- id: c1\n", "- id: c2\n", "- id: c2\n", "- id: c1\n", "${c1.id}", "${c2.id}", "${c2.id}", "${c1.id}").Replace, 750, "",
 			[]string{"c1 -> c2", "c2 -> c1"}, []string{"moved", "regression:", "not renamed consistently"}},
@@ -250,10 +250,10 @@ func TestCLIVerifyPairsRenamedStepsAndScopesChainChanges(t *testing.T) {
 			strings.NewReplacer(fixF3Step, "").Replace, 751, regression, nil, []string{"after a chain change, so they are not evidence"}},
 		{"inserting a read and renaming a step explains no change elsewhere", fixReadsChain, "reads-flow",
 			strings.NewReplacer("steps:\n", fixTopRead, "- id: f1\n", "- id: fa\n").Replace, 751, regression,
-			[]string{"f1 -> fa", "[fa] changed    total want=750 got=751"}, []string{"after a chain change, so they are not evidence"}},
+			[]string{"f1 -> fa", "[fa] changed total want=750 got=751"}, []string{"after a chain change, so they are not evidence"}},
 		{"renaming a step and deleting another explains no change elsewhere", fixReadsChain, "reads-flow",
 			strings.NewReplacer("- id: f1\n", "- id: fa\n", fixF3Step, "").Replace, 751, regression,
-			[]string{"f1 -> fa", "[fa] changed    total want=750 got=751"}, []string{"after a chain change, so they are not evidence"}},
+			[]string{"f1 -> fa", "[fa] changed total want=750 got=751"}, []string{"after a chain change, so they are not evidence"}},
 		{"deleting a trailing read and renaming another explains no change elsewhere", fixReadsChain, "reads-flow",
 			strings.NewReplacer(fixF3Step, "", "- id: f2\n", "- id: fb\n").Replace, 751, regression, nil, []string{"after a chain change, so they are not evidence"}},
 	} {
