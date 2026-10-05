@@ -21,7 +21,7 @@ Report its rows, repros and gap probes: for what the chains cover, they are the 
 
 ### Chain lines
 
-- `PASS`: green, no drift from its safe spot.
+- `PASS`: green, no drift.
 - `KEPT RED`: a known defect, failing exactly as pinned on the date shown. Nothing to do.
 - `FAIL pins held, new change:`: a new defect beside a kept-red chain's pins. A regression.
 - `FAIL not as pinned:`: a pin moved, or the chain passed. A regression.
@@ -92,13 +92,13 @@ shrt catalog build                     # the descriptor every catalog command ne
 shrt doctor                            # is this installation sound?
 ```
 
-- `.shrt/docs/`, the descriptor, `.shrt/runs/`, `.shrt/tokens.json` and `.shrt/safespots/pending/` are gitignored build output.
+- `.shrt/docs/`, the descriptor, `.shrt/runs/`, `.shrt/tokens.json` and `.shrt/safespots/pending/` are gitignored.
 - Rebuild the descriptor after a proto change and the binary after a change to shrt. Both go stale quietly.
 - After upgrading shrt, `shrt init -force -build=false` refreshes docs and kit, never your config. Commit `.claude/`.
 - `shrt init` guesses the `auth:` block. Check the login it picked (GRAMMAR.md §4).
 - A role gets a profile when `<ROLE>_USER` and `<ROLE>_PASSWORD` are exported and the repo's README names it. Re-run `shrt init` to add one.
 - Export the env vars `auth.body` reads before a run.
-- Only `run`, `verify`, `gate`, `chain pin` and `chain slice -verify` send traffic; `run -dry-run` and `verify -run <id>` do not.
+- Only `run`, `verify`, `gate`, `chain pin` and `chain slice -verify` or `-minimize` send traffic, besides init's one login. `run -dry-run` and `verify -run <id>` do not.
 
 ## Commands
 
