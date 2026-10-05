@@ -21,7 +21,7 @@ func chainWhich(args []string) error {
 	rpc := fs.String("rpc", "", "chains with a step calling this rpc, as package.Service/Rpc, Service/Rpc or a bare Rpc")
 	code := fs.String("code", "", "chains asserting this app_code, envelope code, failure reason, transport code (unauthenticated) or HTTP status (401)")
 	asJSON := fs.Bool("json", false, "emit JSON")
-	verbose := fs.Bool("v", false, "after the counts, say what asserted, OBSERVED, auth probe and the reproduce: line mean")
+	verbose := fs.Bool("v", false, "explain the chain headers and the rows")
 	setUsage(fs, "usage: shrt chain which [-rpc <rpc>] [-code <n>] [-json] [-v]   which chains, or local run records, exercise an rpc or a failure code",
 		"\nexit codes:\n  0  a chain or run record matched\n  1  nothing matched, or bad flags (neither -rpc nor -code, an unknown rpc)\n")
 	rest, err := parseArgs(fs, args)
@@ -77,7 +77,7 @@ func chainWhich(args []string) error {
 		if *asJSON {
 			return emitJSON(map[string]any{"chains": hits, "observed_unasserted": seen})
 		}
-		printObservedUnasserted(e.chainsDir(), q, seen, whichCoverOf(e, chains, seen))
+		printObservedUnasserted(e, byName, q, seen)
 		return nil
 	}
 	if *asJSON {
@@ -103,25 +103,10 @@ func situationsOf(byName map[string]*chain.Chain, lib *contract.Library, e *env)
 func describeWhichQuery(q chain.WhichQuery) string {
 	parts := []string{}
 	if q.RPC != "" {
-		parts = append(parts, "calls "+q.RPC)
+		parts = append(parts, "calling "+q.RPC)
 	}
 	if q.Code != "" {
-		asserts := "asserts " + q.Code
-		reasons, codes := []string{}, []string{}
-		for _, a := range q.Aliases {
-			if q.IsNumericCode() && !chain.IsDigits(a) {
-				reasons = append(reasons, a)
-			} else {
-				codes = append(codes, a)
-			}
-		}
-		if len(codes) > 0 {
-			asserts += " or " + strings.Join(codes, " or ") + " (seen with it in a run record or a contract failure, so the same refusal)"
-		}
-		if len(reasons) > 0 {
-			asserts += ", or only the reason " + strings.Join(reasons, " or ") + " (seen with it) on a step that asserts no code; a step asserting another code with that reason is not " + q.Code
-		}
-		parts = append(parts, asserts)
+		parts = append(parts, strings.Join(append([]string{"asserting " + q.Code}, q.Aliases...), " or "))
 	}
 	return strings.Join(parts, " and ")
 }
@@ -260,121 +245,157 @@ func freshVarsOf(e *env, lib *contract.Library) func(*chain.Chain, string) []str
 	}
 }
 
-const (
-	whichMarkSeen  = "OBSERVED"
-	whichMarkClaim = "asserted"
-)
-
 func printWhich(hits []chain.WhichChain, q chain.WhichQuery, target string, verbose bool, situation func(string, string) string) {
-	steps, observed := 0, 0
-	for _, h := range hits {
+	steps, rows, at, usual := 0, make([][]string, len(hits)), map[string]int{}, whichUsualCode(hits, q)
+	for i, h := range hits {
 		steps += len(h.Matches)
-		if h.Observed {
-			observed++
+		at[h.Chain] = i
+		for _, m := range h.Matches {
+			rows[i] = append(rows[i], whichRow(h, m, q, usual, situation))
 		}
 	}
-	fmt.Printf("%d chain(s), %d matching step(s)\n  %s\n", len(hits), steps, describeWhichQuery(q))
+	folds := make([]int, len(hits))
+	for i, h := range hits {
+		cut := strings.LastIndex(h.Chain, "-slice-")
+		if j, ok := at[h.Chain[:max(cut, 0)]]; cut > 0 && ok && (h.Runs > 0) == (hits[j].Runs > 0) &&
+			!slices.ContainsFunc(rows[i], func(r string) bool { return !slices.Contains(rows[j], r) }) {
+			folds[j]++
+			rows[i] = nil
+		}
+	}
+	fmt.Printf("%s, %s %s", plural(len(hits), "chain"), plural(steps, "step"), describeWhichQuery(q))
+	if q.Code == "" && usual != "" {
+		fmt.Printf("; a row asserts %s unless it says otherwise", usual)
+	}
+	fmt.Println()
+	for i, h := range hits {
+		if rows[i] != nil {
+			fmt.Printf("%s\n  %s\n", whichHead(h, folds[i]), strings.Join(rows[i], "\n  "))
+		}
+	}
+	if verbose {
+		fmt.Printf("Each chain heads with the command that reproduces its first step that did not pass, else its first row.\n"+
+			"A plain slice keeps the writes on the step's entities; -keep writes keeps every earlier write.\n"+
+			"A row is a step: the code it asserts if not the usual one, the state it acted on (-rpc), auth probe, and the verdict\n"+
+			"of the newest local run that reached it, only if it did not pass or no run reached it. Runs are machine-local;\n"+
+			"only those against %s count. -code also matches a code seen with it in a run or contract failure;\n"+
+			"a reason alone matches only a step asserting no code. Same rows in N slices: chains <chain>-slice-<step> with these rows.\n", target)
+	}
+}
+
+func whichHead(h chain.WhichChain, folds int) string {
+	notes, alt := []string{}, ""
+	if h.CommandSteps > 0 {
+		notes = append(notes, fmt.Sprintf("%d of %d steps", h.CommandSteps, h.Steps))
+	}
+	if h.Fallback != "" && strings.Replace(h.Fallback, " -keep "+chain.SliceKeepWrites, "", 1) == h.Command {
+		notes = append(notes, "if it does not reproduce, add -keep writes")
+	} else if h.Fallback != "" {
+		alt = fmt.Sprintf("\n  else: %s  (%d steps)", h.Fallback, h.FallbackSteps)
+	}
+	if h.Runs == 0 {
+		notes = append(notes, "no local runs")
+	}
+	if folds > 0 {
+		notes = append(notes, "same rows in "+plural(folds, "slice"))
+	}
+	if len(notes) > 0 {
+		return h.Command + "  (" + strings.Join(notes, "; ") + ")" + alt
+	}
+	return h.Command + alt
+}
+
+func whichUsualCode(hits []chain.WhichChain, q chain.WhichQuery) string {
+	if q.Code != "" {
+		return q.Code
+	}
+	counts, usual, rows := map[string]int{}, "", 0
 	for _, h := range hits {
-		fmt.Println()
-		fmt.Printf("%s  %d steps, %s\n", h.Chain, h.Steps, runCount(h.Runs))
-		idW, codeW := 0, 0
 		for _, m := range h.Matches {
-			if n := len(m.Step); n > idW {
-				idW = n
-			}
-			if n := len(whichCodeCell(m, q)); n > codeW {
-				codeW = n
-			}
-		}
-		for _, m := range h.Matches {
-			mark := whichMarkClaim
-			if m.Observed != nil {
-				mark = whichMarkSeen
-			}
-			line := fmt.Sprintf("  %s  %-*s  asserts %-*s  slice %d/%d",
-				mark, idW, m.Step, codeW, whichCodeCell(m, q), m.SliceSteps, h.Steps)
-			if m.Kind == chain.WhichKindAuthProbe {
-				line += "  auth probe"
-			}
-			fmt.Println(line)
-			if sit := situation(h.Chain, m.Step); sit != "" && q.RPC != "" {
-				fmt.Printf("    called %s\n", sit)
-			}
-			if m.ByReason != "" {
-				fmt.Printf("    matched by reason %s only: the step asserts no code, so it may expect a code other than %s that has the same reason\n", m.ByReason, q.Code)
-			}
-			if m.Observed == nil {
-				if m.Newest != nil {
-					fmt.Printf("    no local run reached it; newest run %s: %s\n", m.Newest.Run, whyNewestUnreached(m.Newest))
-				}
-				continue
-			}
-			fmt.Printf("    %s\n", whichSeenCell(m.Observed))
-			for _, f := range m.Observed.Failures {
-				fmt.Printf("    failed: %s\n", chain.DescribeFailure(f))
-				if note, ok := blockedNote(h.Chain, m.Step, m.Observed.Run, f); ok {
-					fmt.Printf("      %s\n", note)
+			rows++
+			if a, ok := chain.PrimaryAssertionFor(m.Asserts, q); ok {
+				if counts[a.Value]++; counts[a.Value] > counts[usual] {
+					usual = a.Value
 				}
 			}
-			if m.Newest != nil {
-				fmt.Printf("    newest run %s did not reach it: %s\n", m.Newest.Run, whyNewestUnreached(m.Newest))
-			}
-		}
-		if h.CommandSteps > 0 {
-			fmt.Printf("  reproduce: %s  (%d of %d steps)\n", h.Command, h.CommandSteps, h.Steps)
-		} else {
-			fmt.Printf("  reproduce: %s\n", h.Command)
-		}
-		if h.Fallback != "" {
-			fmt.Printf("  if that does not reproduce: %s  (%d of %d steps)\n", h.Fallback, h.FallbackSteps, h.Steps)
 		}
 	}
-	fmt.Printf("\n%d chain(s), %d with a local run record that reached a matching step.\n", len(hits), observed)
-	if !verbose {
-		return
+	if counts[usual] < 4 || 2*counts[usual] <= rows {
+		return ""
 	}
-	fmt.Printf("%s is what the chain claims; %s cites the newest local run record that reached the step, and \"got\" is\n"+
-		"what its recorded response carried at the asserted path. A step marked FAILED did not produce what it asserts,\n"+
-		"and its failing expectations follow. Under -rpc alone, a step whose newest reaching run FAILED there ranks first:\n"+
-		"during an incident that is the one to slice. Under -code, one whose newest reaching run contradicts the assertion ranks last,\n"+
-		"though its reproduce: line slices a step that FAILED when the chain has one.\n"+
-		"Run records are machine-local, and only those recorded against this target (%s) are cited.\n",
-		whichMarkClaim, whichMarkSeen, target)
-	fmt.Println("The plain closure keeps the writes that act on the entities the step uses, as far as the cited run shows; when that run\n" +
-		"shows none left out, it is the reproduce: line, with -keep writes, which keeps every earlier write its state may depend\n" +
-		"on, as the fallback; otherwise -keep writes is the reproduce: line. A step marked auth probe (skip_auth, auth: invalid, or a\n" +
-		"transport refusal such as unauthenticated) is refused before it writes anything, so it is sliced plainly: earlier\n" +
-		"writes do not change its verdict, and -keep writes would only add steps.")
+	return usual
 }
 
-func whyNewestUnreached(n *chain.WhichNewest) string {
-	if n.StoppedAt != "" {
-		return fmt.Sprintf("run stopped at step %s (%s)", n.StoppedAt, n.StoppedStatus)
+func whichRow(h chain.WhichChain, m chain.WhichStep, q chain.WhichQuery, usual string, situation func(string, string) string) string {
+	parts := []string{m.Step}
+	a, asserted := chain.PrimaryAssertionFor(m.Asserts, q)
+	switch {
+	case m.ByReason != "":
+		parts = append(parts, "asserts only reason "+m.ByReason)
+	case !asserted && usual != "":
+		parts = append(parts, "asserts no code")
+	case asserted && !strings.EqualFold(a.Value, usual):
+		parts = append(parts, "asserts "+a.Value)
 	}
-	return "step " + n.Status
+	if sit := situation(h.Chain, m.Step); sit != "" && q.RPC != "" {
+		parts = append(parts, sit)
+	}
+	if m.Kind == chain.WhichKindAuthProbe {
+		parts = append(parts, "auth probe")
+	}
+	switch o := m.Observed; {
+	case o == nil && h.Runs > 0:
+		parts = append(parts, "no run reached it")
+	case o == nil:
+	case len(o.Failures) > 0:
+		parts = append(parts, shownStatus(o.Status)+" "+whichFailures(o.Failures))
+	case o.Status != runner.StatusPassed:
+		parts = append(parts, shownStatus(o.Status)+" got "+whichGot(o))
+	case o.Asserted != "" && (o.Path != o.Asserted || !strings.EqualFold(o.Code, a.Value)):
+		parts = append(parts, "got "+whichGot(o))
+	}
+	if n := m.Newest; n != nil && n.StoppedAt != "" {
+		parts = append(parts, "newest run stopped at "+n.StoppedAt)
+	} else if n != nil {
+		parts = append(parts, "newest run: step "+n.Status)
+	}
+	return strings.Join(parts, "  ")
 }
 
-func whichSeenCell(o *chain.WhichEvidence) string {
-	status := shownStatus(o.Status)
-	got := o.Code
+func whichFailures(fs []chain.ExpectResult) string {
+	lead := 0
+	for i, f := range fs {
+		if _, held := blockedBy(f); !held {
+			lead = i
+			break
+		}
+	}
+	out := chain.DescribeFailure(fs[lead])
+	if up, held := blockedBy(fs[lead]); held {
+		out = fs[lead].Path + " not evaluated: reads failed step " + up
+	}
+	also := []string{}
+	for _, f := range fs {
+		if f.Path != fs[lead].Path && !slices.Contains(also, f.Path) {
+			also = append(also, f.Path)
+		}
+	}
+	if len(also) > 0 {
+		out += ", also " + chain.ListSome(also, 2)
+	}
+	return out
+}
+
+func whichGot(o *chain.WhichEvidence) string {
 	switch {
 	case o.Asserted != "" && o.Path != o.Asserted && o.Code != "":
-		got = fmt.Sprintf("%s at %s (nothing at %s)", o.Code, o.Path, o.Asserted)
+		return o.Code + " at " + o.Path
 	case o.Asserted != "" && o.Code == "":
-		got = "nothing at " + o.Asserted
+		return "nothing at " + o.Asserted
 	case o.Code == "":
-		got = "no code"
+		return "no code"
 	}
-	paths := []string{}
-	for _, f := range o.Failures {
-		if !slices.Contains(paths, f.Path) {
-			paths = append(paths, f.Path)
-		}
-	}
-	if len(paths) > 0 {
-		return fmt.Sprintf("run %s got %s, step %s on %s", o.Run, got, status, strings.Join(paths, ", "))
-	}
-	return fmt.Sprintf("run %s got %s, step %s", o.Run, got, status)
+	return o.Code
 }
 
 func shownStatus(status string) string {
@@ -384,52 +405,14 @@ func shownStatus(status string) string {
 	return status
 }
 
-func runCount(n int) string {
-	if n == 0 {
-		return "no local runs"
-	}
-	return fmt.Sprintf("%d local run(s)", n)
-}
-
-func whichCodeCell(m chain.WhichStep, q chain.WhichQuery) string {
-	if a, ok := chain.PrimaryAssertionFor(m.Asserts, q); ok {
-		return a.Value
-	}
-	if q.Code != "" {
-		return q.Code
-	}
-	return "-"
-}
-
-type whichCover struct {
-	siblings  []string
-	baselined string
-}
-
-func whichCoverOf(e *env, chains []*chain.Chain, seen []chain.WhichUnasserted) []whichCover {
-	out := make([]whichCover, len(seen))
-	for i, s := range seen {
-		parent := ""
-		if j := strings.LastIndex(s.Path, "."); j > 0 {
-			parent = s.Path[:j+1]
-		}
-		for _, c := range chains {
-			if c.Name != s.Chain {
-				continue
-			}
-			for _, st := range c.Steps {
-				if st == nil || st.ID != s.Step {
-					continue
-				}
-				for _, x := range st.Expect {
-					if x.Equals != nil && x.Path != s.Path && strings.HasPrefix(x.Path, parent) && !strings.Contains(x.Path[len(parent):], ".") &&
-						chain.IsCodePath(x.Path) {
-						out[i].siblings = append(out[i].siblings, fmt.Sprintf("%s equals %v", x.Path, x.Equals))
-					}
-				}
+func siblingPins(c *chain.Chain, s chain.WhichUnasserted) []string {
+	parent, out := s.Path[:strings.LastIndex(s.Path, ".")+1], []string{}
+	if st, ok := c.Step(s.Step); ok {
+		for _, x := range st.Expect {
+			if x.Equals != nil && x.Path != s.Path && strings.HasPrefix(x.Path, parent) && !strings.Contains(x.Path[len(parent):], ".") && chain.IsCodePath(x.Path) {
+				out = append(out, fmt.Sprintf("%s equals %v", x.Path, x.Equals))
 			}
 		}
-		out[i].baselined = baselinedAt(e, s)
 	}
 	return out
 }
@@ -456,39 +439,24 @@ func baselinedAt(e *env, s chain.WhichUnasserted) string {
 	return ""
 }
 
-func printObservedUnasserted(dir string, q chain.WhichQuery, seen []chain.WhichUnasserted, cover []whichCover) {
-	fmt.Printf("no chain in %s %s, but local run records observed it on %d step(s) that do not assert it:\n\n", dir, describeWhichQuery(q), len(seen))
-	baselined, bare := 0, 0
-	for i, s := range seen {
-		fmt.Printf("%s  step %d %s  %s\n    run %s got %s at %s, step %s\n",
-			s.Chain, s.Index, s.Step, shortRPC(s.Call), s.Run, s.Code, s.Path, shownStatus(s.Status))
-		if list := cover[i].siblings; len(list) > 0 {
-			fmt.Printf("    pins the same detail: %s, so a different refusal there fails shrt run\n", strings.Join(list, "; "))
+func printObservedUnasserted(e *env, byName map[string]*chain.Chain, q chain.WhichQuery, seen []chain.WhichUnasserted) {
+	fmt.Printf("no chain in %s %s; run records saw it on %s not asserting it:\n", e.chainsDir(), describeWhichQuery(q), plural(len(seen), "step"))
+	for _, s := range seen {
+		status := ""
+		if s.Status != runner.StatusPassed {
+			status = "  " + shownStatus(s.Status)
 		}
-		if spot := cover[i].baselined; spot != "" {
-			baselined++
-			fmt.Printf("    baselined: safe spot %s holds %s at %s, so shrt verify reports a change to it\n", spot, s.Code, s.Path)
-		} else if len(cover[i].siblings) == 0 {
-			bare++
+		fmt.Printf("%s  %s  %s  got %s at %s%s\n", s.Chain, s.Step, shortRPC(s.Call), s.Code, s.Path, status)
+		pins := siblingPins(byName[s.Chain], s)
+		if len(pins) > 0 {
+			fmt.Printf("  pins the same detail: %s, so a change fails shrt run\n", strings.Join(pins, "; "))
 		}
-		fmt.Printf("    reproduce: %s\n", s.Command)
+		if spot := baselinedAt(e, s); spot != "" {
+			fmt.Printf("  baselined by safe spot %s, so shrt verify reports a change\n", spot)
+		} else if len(pins) == 0 {
+			fmt.Println("  neither pinned nor baselined: a change goes unnoticed")
+		}
+		fmt.Printf("  reproduce: %s\n", s.Command)
 	}
-	switch {
-	case bare == 0 && baselined == len(seen):
-		fmt.Printf("\nNo expectation pins %s itself, but each step above is baselined by its safe spot, so shrt verify catches a change to it;\n"+
-			"shrt run alone does not. chain which lists only steps that assert the code: to be listed, and to fail shrt run as well,\n"+
-			"assert it where it is the point of the step (path: the path above, equals: %s).\n", q.Code, q.Code)
-	case bare == 0:
-		fmt.Printf("\nNo expectation pins %s itself; a change is caught only as each line above says (by a sibling expectation on the same\n"+
-			"detail, or by shrt verify against a safe spot). To pin it, assert it where it is the point of the step (path: the path above,\n"+
-			"equals: %s), and chain which lists the step.\n", q.Code, q.Code)
-	case bare < len(seen):
-		fmt.Printf("\nNo expectation pins %s itself. Where a line above says baselined or pins the same detail, a change is caught as it says;\n"+
-			"at the %d other step(s) a change to that answer goes unnoticed. Assert it where it is the point of the step\n"+
-			"(path: the path above, equals: %s), and chain which lists the step.\n", q.Code, bare, q.Code)
-	default:
-		fmt.Printf("\nThe backend answered %s there, but no expectation pins it and no safe spot baselines it, so a change to that answer goes unnoticed.\n"+
-			"Assert it where it is the point of the step (path: the path above, equals: %s), and chain which lists the step.\n", q.Code, q.Code)
-	}
-	fmt.Println("Run records are machine-local.")
+	fmt.Printf("To fail shrt run on a change and be listed here, assert %s at the path above.\n", q.Code)
 }

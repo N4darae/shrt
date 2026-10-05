@@ -94,12 +94,3 @@ func blockedReason(sourceRun string, blocked []blockedRead) string {
 	}
 	return strings.Join(lines, "\n") + fmt.Sprintf("\nthe source run has no verdict on them to reproduce: %s held them back", strings.Join(upstream, ", "))
 }
-
-func blockedNote(chainRef, step, run string, f chain.ExpectResult) (string, bool) {
-	upstream, ok := blockedBy(f)
-	if !ok {
-		return "", false
-	}
-	return fmt.Sprintf("not evaluated: it reads step %s, which failed in run %s; evaluate it on its own, with %s relaxed: "+
-		"shrt chain slice %s -step %s -run %s -verify", upstream, run, upstream, chainRef, step, run), true
-}

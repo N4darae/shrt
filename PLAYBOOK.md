@@ -304,9 +304,8 @@ shrt chain which -rpc PayInvoice -code 1204 -json
 ```
 
 - `-rpc`, `-code` or both; both intersect. `-code` matches the envelope code, a `code_fields` detail, `transport.code` or `transport.http_status`.
-- `asserted` is a chain's claim. `OBSERVED` means a local run record reached the step. Run records are machine-local.
+- Each chain heads with its reproduce command; replace `<fresh>`. A verdict appears only if the newest local run failed or never reached the step.
 - Under `-rpc`, each write step says the state and item count it acted on.
-- Paste the `reproduce:` line, replacing `<fresh>`.
 - No match exits 1. Under `-code`, steps whose run carried the code unasserted are listed with a reproduce command.
 
 ## 11. A step failed: get the minimal reproduction

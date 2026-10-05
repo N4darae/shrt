@@ -206,8 +206,8 @@ func TestChainLsMarksAChainThatWaitsWithItsTotalWait(t *testing.T) {
 	writeFile(t, ".shrt/chains/a-hold.yaml", waitingChain("a-hold", ""))
 	var err error
 	out := captureStdout(t, func() { err = chainList(nil) })
-	if err != nil || !strings.Contains(out, "  W a-hold           2 step(s)  waits 4m\n") || !strings.Contains(out, "    cli-thing-flow   2 step(s)\n") ||
-		!strings.Contains(out, "W = waits by design (shrt gate -repro leaves it out, shrt gate <chain> runs it)") {
+	if err != nil || !strings.Contains(out, "  W a-hold  2 steps, waits 4m\n") || !strings.Contains(out, "    cli-thing-flow  2 steps\n") ||
+		!strings.Contains(out, "W waits by design (gate -repro skips it; shrt gate <chain> runs it)") {
 		t.Fatalf("a chain with wait: steps is marked W with its total wait, before any gate starts (%v):\n%s", err, out)
 	}
 	out = captureStdout(t, func() { err = chainList([]string{"-json"}) })

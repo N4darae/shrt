@@ -32,7 +32,7 @@ func TestVersionInitAndChainLsPrintNoParagraphTheyDoNotNeed(t *testing.T) {
 			t.Fatal(err)
 		}
 	})
-	if !strings.HasSuffix(out, "\n1 chain(s)\n") {
+	if !strings.HasSuffix(out, "\n1 chain\n") {
 		t.Errorf("with no chain marked, the count is the footer:\n%s", out)
 	}
 	writeFile(t, ".shrt/chains/cli-red.yaml", "apiVersion: shrt/v1\nname: cli-red\nkept_red:\n    - step: fetch\n      path: error.code\nsteps:\n    - id: fetch\n      call: ThingService/Fetch\n      body:\n          id: x\n      expect:\n          - path: error.code\n            equals: OK\n")
@@ -41,7 +41,7 @@ func TestVersionInitAndChainLsPrintNoParagraphTheyDoNotNeed(t *testing.T) {
 			t.Fatal(err)
 		}
 	})
-	if !strings.HasSuffix(out, "\n2 chain(s); R = kept red\n") {
+	if !strings.HasSuffix(out, "\n2 chains; R kept red\n") {
 		t.Errorf("the legend names only the marks shown:\n%s", out)
 	}
 }

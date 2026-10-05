@@ -85,10 +85,10 @@ func TestChainWhichSaysTheStateAndItemCountAWriteStepActsOn(t *testing.T) {
 	defer stateGapWorkspace(t)()
 	var err error
 	out := captureStdout(t, func() { err = chainWhich([]string{"-rpc", "CancelOrder"}) })
-	if err != nil || !strings.Contains(out, "cancel_order  asserts -  slice") || !strings.Contains(out, "    called on an order in CONFIRMED, lines of 1 item\n") {
+	if err != nil || !strings.Contains(out, "\n  cancel_order  on CONFIRMED order, 1 line\n") {
 		t.Fatalf("chain which says the state and line count a step cancels from (%v):\n%s", err, out)
 	}
-	if out = captureStdout(t, func() { err = chainWhich([]string{"-code", "1304"}) }); strings.Contains(out, "    called ") {
+	if out = captureStdout(t, func() { err = chainWhich([]string{"-code", "1304"}) }); strings.Contains(out, " order, ") {
 		t.Fatalf("only -rpc prints the state a step acts on:\n%s", out)
 	}
 	captureStdout(t, func() { err = contractPlan([]string{"CancelOrder", "-write"}) })
@@ -96,14 +96,11 @@ func TestChainWhichSaysTheStateAndItemCountAWriteStepActsOn(t *testing.T) {
 		t.Fatal(err)
 	}
 	out = captureStdout(t, func() { err = chainWhich([]string{"-rpc", "CancelOrder"}) })
-	if err != nil || !strings.Contains(out, "cancel_order_3_lines_from_pending") || !strings.Contains(out, "    called on an order in PENDING, lines of 3 items\n") {
+	if err != nil || !strings.Contains(out, "\n  cancel_order_3_lines_from_pending  on PENDING order, 3 lines\n") {
 		t.Fatalf("chain which shows the planned 3-line cancel of a PENDING order (%v):\n%s", err, out)
 	}
-	lines := strings.Split(out, "\n")
-	for i, line := range lines[:len(lines)-1] {
-		if strings.Contains(line, " cancel_order_when_cancelled ") && strings.HasPrefix(lines[i+1], "    called ") {
-			t.Fatalf("a refused step acts on nothing, so no state is printed under it:\n%s", out)
-		}
+	if !strings.Contains(out, "\n  cancel_order_when_cancelled  asserts 1304\n") {
+		t.Fatalf("a refused step acts on nothing, so its row names no state:\n%s", out)
 	}
 }
 

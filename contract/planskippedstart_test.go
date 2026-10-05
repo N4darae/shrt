@@ -116,10 +116,10 @@ func TestStateGapsNameTheStateAndItemCountsNoChainCovers(t *testing.T) {
 		}
 	}
 	sits := contract.Situations(hand, lib, cat)
-	if got := sits["cancel_order_from_pending"].String(); got != "on an order in PENDING, lines of 2 items" {
+	if got := sits["cancel_order_from_pending"].String(); got != "on PENDING order, 2 lines" {
 		t.Fatalf("the hand chain cancels a PENDING order of 2 lines, got %q", got)
 	}
-	if got := contract.Situations(old, lib, cat)["cancel_order_3_lines"].String(); got != "on an order in CONFIRMED, lines of 3 items" {
+	if got := contract.Situations(old, lib, cat)["cancel_order_3_lines"].String(); got != "on CONFIRMED order, 3 lines" {
 		t.Fatalf("the planned 3-line cancel runs on a CONFIRMED order, got %q", got)
 	}
 	gaps := contract.StateGaps([]*chain.Chain{old}, plans, lib, cat)

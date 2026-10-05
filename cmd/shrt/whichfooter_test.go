@@ -5,17 +5,16 @@ import (
 	"testing"
 )
 
-func TestChainWhichEndsOnItsCountsAndExplainsUnderV(t *testing.T) {
+func TestChainWhichHeadsEachChainWithItsReproduceLineAndExplainsUnderV(t *testing.T) {
 	fixWorkspace(t, &fixThing{fetchCode: "PERMISSION_DENIED"}, fixRefusalChain)
 	if _, err := fixCmd(t, "run", "cli-refusal-flow", "-quiet"); err != nil {
 		t.Fatal(err)
 	}
 	out := whichOut(t, "-rpc", "ThingService/Fetch")
-	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
-	if last := lines[len(lines)-1]; !strings.Contains(last, "with a local run record that reached a matching step") || strings.Contains(out, "is what the chain claims") {
-		t.Errorf("the footer is the one counts line:\n%s", out)
+	if !strings.Contains(out, "\nshrt chain slice cli-refusal-flow -step outsider_reads\n  outsider_reads") || strings.Contains(out, "A row is") {
+		t.Errorf("each chain heads with its reproduce command, its rows under it:\n%s", out)
 	}
-	if verbose := whichOut(t, "-rpc", "ThingService/Fetch", "-v"); !strings.Contains(verbose, "asserted is what the chain claims") || !strings.Contains(verbose, "The plain closure keeps") {
-		t.Errorf("-v explains the marks and the reproduce: line:\n%s", verbose)
+	if verbose := whichOut(t, "-rpc", "ThingService/Fetch", "-v"); !strings.Contains(verbose, "A row is a step") || !strings.Contains(verbose, "-keep writes keeps every earlier write") {
+		t.Errorf("-v explains the chain headers and the rows:\n%s", verbose)
 	}
 }
