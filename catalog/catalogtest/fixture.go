@@ -32,74 +32,34 @@ func parse(raw []byte) *catalog.Catalog {
 }
 
 func file() *descriptorpb.FileDescriptorProto {
-	return &descriptorpb.FileDescriptorProto{
-		Name:    proto.String("shrt/test/v1/test.proto"),
-		Package: proto.String(Package),
-		Syntax:  proto.String("proto3"),
-		EnumType: []*descriptorpb.EnumDescriptorProto{
-			enum("Kind", "KIND_UNSPECIFIED", "KIND_A", "KIND_B"),
-		},
-		MessageType: []*descriptorpb.DescriptorProto{
-			message("ErrorMessage",
-				str("code", 1),
-				str("message", 2),
-			),
-			message("LoginRequest",
-				str("username", 1),
-				str("password", 2),
-				str("old_password", 3),
-				str("new_password", 4),
-			),
-			message("LoginResponse",
-				msg("error", 1, ".shrt.test.v1.ErrorMessage"),
-				str("access_token", 2),
-				num("expires_at", 3, descriptorpb.FieldDescriptorProto_TYPE_INT64),
-			),
-			message("Meta",
-				str("source", 1),
-				str("trace_id", 2),
-			),
-			message("CreateRequest",
-				str("name", 1),
-				enumField("kind", 2, ".shrt.test.v1.Kind"),
-				str("idempotency_key", 3),
-				msg("meta", 4, ".shrt.test.v1.Meta"),
-				num("qty", 5, descriptorpb.FieldDescriptorProto_TYPE_INT64),
-			),
-			message("CreateResponse",
-				msg("error", 1, ".shrt.test.v1.ErrorMessage"),
-				str("id", 2),
-				str("name", 3),
-				num("total", 4, descriptorpb.FieldDescriptorProto_TYPE_INT32),
-			),
-			message("FetchRequest",
-				str("id", 1),
-			),
-			message("FetchResponse",
-				msg("error", 1, ".shrt.test.v1.ErrorMessage"),
-				str("id", 2),
-				str("name", 3),
-				str("created_at", 4),
-				num("total", 5, descriptorpb.FieldDescriptorProto_TYPE_INT32),
-			),
-		},
-		Service: []*descriptorpb.ServiceDescriptorProto{
-			service("AuthService",
-				method("Login", ".shrt.test.v1.LoginRequest", ".shrt.test.v1.LoginResponse"),
-			),
-			service("PartnerAuthService",
-				method("Login", ".shrt.test.v1.LoginRequest", ".shrt.test.v1.LoginResponse"),
-			),
-			service("PartnerService",
-				method("FetchMine", ".shrt.test.v1.FetchRequest", ".shrt.test.v1.FetchResponse"),
-			),
-			service("ThingService",
-				method("Create", ".shrt.test.v1.CreateRequest", ".shrt.test.v1.CreateResponse"),
-				method("Fetch", ".shrt.test.v1.FetchRequest", ".shrt.test.v1.FetchResponse"),
-			),
-		},
-	}
+	return protoFile("shrt/test/v1/test.proto", Package, nil, enums(enum("Kind", "KIND_UNSPECIFIED", "KIND_A", "KIND_B")), messages(
+		message("ErrorMessage", str("code", 1), str("message", 2)),
+		message("LoginRequest", str("username", 1), str("password", 2), str("old_password", 3), str("new_password", 4)),
+		message("LoginResponse", msg("error", 1, ".shrt.test.v1.ErrorMessage"), str("access_token", 2), int64Field("expires_at", 3)),
+		message("Meta", str("source", 1), str("trace_id", 2)),
+		message("CreateRequest", str("name", 1), enumField("kind", 2, ".shrt.test.v1.Kind"), str("idempotency_key", 3), msg("meta", 4, ".shrt.test.v1.Meta"), int64Field("qty", 5)),
+		message("CreateResponse", msg("error", 1, ".shrt.test.v1.ErrorMessage"), str("id", 2), str("name", 3), int32Field("total", 4)),
+		message("FetchRequest", str("id", 1)),
+		message("FetchResponse", msg("error", 1, ".shrt.test.v1.ErrorMessage"), str("id", 2), str("name", 3), str("created_at", 4), int32Field("total", 5)),
+	),
+		service("AuthService", method("Login", ".shrt.test.v1.LoginRequest", ".shrt.test.v1.LoginResponse")),
+		service("PartnerAuthService", method("Login", ".shrt.test.v1.LoginRequest", ".shrt.test.v1.LoginResponse")),
+		service("PartnerService", method("FetchMine", ".shrt.test.v1.FetchRequest", ".shrt.test.v1.FetchResponse")),
+		service("ThingService",
+			method("Create", ".shrt.test.v1.CreateRequest", ".shrt.test.v1.CreateResponse"),
+			method("Fetch", ".shrt.test.v1.FetchRequest", ".shrt.test.v1.FetchResponse"),
+		),
+	)
 }
+
+func protoFile(name, pkg string, deps []string, enumTypes []*descriptorpb.EnumDescriptorProto, messageTypes []*descriptorpb.DescriptorProto, services ...*descriptorpb.ServiceDescriptorProto) *descriptorpb.FileDescriptorProto {
+	return &descriptorpb.FileDescriptorProto{Name: proto.String(name), Package: proto.String(pkg), Syntax: proto.String("proto3"),
+		Dependency: deps, EnumType: enumTypes, MessageType: messageTypes, Service: services}
+}
+
+func messages(ms ...*descriptorpb.DescriptorProto) []*descriptorpb.DescriptorProto { return ms }
+
+func enums(es ...*descriptorpb.EnumDescriptorProto) []*descriptorpb.EnumDescriptorProto { return es }
 
 func message(name string, fields ...*descriptorpb.FieldDescriptorProto) *descriptorpb.DescriptorProto {
 	return &descriptorpb.DescriptorProto{Name: proto.String(name), Field: fields}
@@ -150,8 +110,12 @@ func str(name string, number int32) *descriptorpb.FieldDescriptorProto {
 	return field(name, number, descriptorpb.FieldDescriptorProto_TYPE_STRING)
 }
 
-func num(name string, number int32, t descriptorpb.FieldDescriptorProto_Type) *descriptorpb.FieldDescriptorProto {
-	return field(name, number, t)
+func int64Field(name string, number int32) *descriptorpb.FieldDescriptorProto {
+	return field(name, number, descriptorpb.FieldDescriptorProto_TYPE_INT64)
+}
+
+func int32Field(name string, number int32) *descriptorpb.FieldDescriptorProto {
+	return field(name, number, descriptorpb.FieldDescriptorProto_TYPE_INT32)
 }
 
 func msg(name string, number int32, typeName string) *descriptorpb.FieldDescriptorProto {

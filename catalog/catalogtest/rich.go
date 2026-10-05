@@ -39,85 +39,42 @@ func wellKnownFiles() []*descriptorpb.FileDescriptorProto {
 }
 
 func richFile() *descriptorpb.FileDescriptorProto {
-	return &descriptorpb.FileDescriptorProto{
-		Name:    proto.String("shrt/test/rich/v1/rich.proto"),
-		Package: proto.String(RichPackage),
-		Syntax:  proto.String("proto3"),
-		Dependency: []string{
-			"google/protobuf/timestamp.proto",
-			"google/protobuf/duration.proto",
-			"google/protobuf/field_mask.proto",
-			"google/protobuf/struct.proto",
-			"google/protobuf/empty.proto",
-			"google/protobuf/any.proto",
-			"google/protobuf/wrappers.proto",
-		},
-		EnumType: []*descriptorpb.EnumDescriptorProto{
-			enum("Channel", "CHANNEL_UNSPECIFIED", "CHANNEL_WEB", "CHANNEL_BRANCH"),
-		},
-		MessageType: []*descriptorpb.DescriptorProto{
-			message("Line", str("sku", 1), num("qty", 2, descriptorpb.FieldDescriptorProto_TYPE_INT64)),
-			orderRequest(),
-			message("RichError", str("code", 1), str("message", 2)),
-			orderResponse(),
-			message("WatchRequest", str("id_order", 1)),
-			message("WatchEvent", str("id_order", 1), str("state", 2)),
-		},
-		Service: []*descriptorpb.ServiceDescriptorProto{
-			service("OrderService",
-				method("PlaceOrder", ".shrt.test.rich.v1.OrderRequest", ".shrt.test.rich.v1.OrderResponse"),
-				streamingMethod("WatchOrder", ".shrt.test.rich.v1.WatchRequest", ".shrt.test.rich.v1.WatchEvent", false, true),
-				streamingMethod("UploadOrders", ".shrt.test.rich.v1.OrderRequest", ".shrt.test.rich.v1.OrderResponse", true, false),
-				streamingMethod("SyncOrders", ".shrt.test.rich.v1.OrderRequest", ".shrt.test.rich.v1.WatchEvent", true, true),
-			),
-		},
-	}
+	deps := []string{"google/protobuf/timestamp.proto", "google/protobuf/duration.proto", "google/protobuf/field_mask.proto",
+		"google/protobuf/struct.proto", "google/protobuf/empty.proto", "google/protobuf/any.proto", "google/protobuf/wrappers.proto"}
+	return protoFile("shrt/test/rich/v1/rich.proto", RichPackage, deps, enums(enum("Channel", "CHANNEL_UNSPECIFIED", "CHANNEL_WEB", "CHANNEL_BRANCH")), messages(
+		message("Line", str("sku", 1), int64Field("qty", 2)),
+		orderRequest(),
+		message("RichError", str("code", 1), str("message", 2)),
+		orderResponse(),
+		message("WatchRequest", str("id_order", 1)),
+		message("WatchEvent", str("id_order", 1), str("state", 2)),
+	),
+		service("OrderService",
+			method("PlaceOrder", ".shrt.test.rich.v1.OrderRequest", ".shrt.test.rich.v1.OrderResponse"),
+			streamingMethod("WatchOrder", ".shrt.test.rich.v1.WatchRequest", ".shrt.test.rich.v1.WatchEvent", false, true),
+			streamingMethod("UploadOrders", ".shrt.test.rich.v1.OrderRequest", ".shrt.test.rich.v1.OrderResponse", true, false),
+			streamingMethod("SyncOrders", ".shrt.test.rich.v1.OrderRequest", ".shrt.test.rich.v1.WatchEvent", true, true),
+		),
+	)
 }
 
 func orderResponse() *descriptorpb.DescriptorProto {
-	m := message("OrderResponse",
-		msg("error", 1, ".shrt.test.rich.v1.RichError"),
-		str("id_order", 2),
-		mapField("labels", 3, ".shrt.test.rich.v1.OrderResponse.LabelsEntry"),
-	)
+	m := message("OrderResponse", msg("error", 1, ".shrt.test.rich.v1.RichError"), str("id_order", 2), mapField("labels", 3, ".shrt.test.rich.v1.OrderResponse.LabelsEntry"))
 	m.NestedType = append(m.NestedType, mapEntryScalar("LabelsEntry"))
 	return m
 }
 
 func orderRequest() *descriptorpb.DescriptorProto {
-	m := message("OrderRequest",
-		str("id_order", 1),
-		msg("due_at", 3, ".google.protobuf.Timestamp"),
-		msg("window", 4, ".google.protobuf.Duration"),
-		inOneof(str("card_token", 5), 0),
-		inOneof(str("bank_ref", 6), 0),
-		inOneof(str("wallet_id", 7), 0),
-		msg("update_mask", 8, ".google.protobuf.FieldMask"),
-		msg("note", 9, ".google.protobuf.StringValue"),
-		msg("amount_minor", 10, ".google.protobuf.Int64Value"),
-		msg("metadata", 11, ".google.protobuf.Struct"),
-		msg("ping", 12, ".google.protobuf.Empty"),
-		msg("anything", 13, ".google.protobuf.Value"),
-		msg("tags", 14, ".google.protobuf.ListValue"),
-		msg("payload", 15, ".google.protobuf.Any"),
-		repeated(msg("lines", 16, ".shrt.test.rich.v1.Line")),
-		mapField("lines_by_id", 17, ".shrt.test.rich.v1.OrderRequest.LinesByIdEntry"),
-		enumField("channel", 18, ".shrt.test.rich.v1.Channel"),
-		proto3Optional(str("memo", 19), 2),
-		inOneof(str("fast", 20), 1),
-		inOneof(str("cheap", 21), 1),
-		msg("flagged", 22, ".google.protobuf.BoolValue"),
-		msg("ratio", 23, ".google.protobuf.DoubleValue"),
-		msg("first_line", 24, ".shrt.test.rich.v1.Line"),
-	)
-	m.NestedType = []*descriptorpb.DescriptorProto{
-		mapEntry("LinesByIdEntry", ".shrt.test.rich.v1.Line"),
-	}
-	m.OneofDecl = []*descriptorpb.OneofDescriptorProto{
-		{Name: proto.String("payment")},
-		{Name: proto.String("route")},
-		{Name: proto.String("_memo")},
-	}
+	m := message("OrderRequest", str("id_order", 1), msg("due_at", 3, ".google.protobuf.Timestamp"), msg("window", 4, ".google.protobuf.Duration"),
+		inOneof(str("card_token", 5), 0), inOneof(str("bank_ref", 6), 0), inOneof(str("wallet_id", 7), 0),
+		msg("update_mask", 8, ".google.protobuf.FieldMask"), msg("note", 9, ".google.protobuf.StringValue"), msg("amount_minor", 10, ".google.protobuf.Int64Value"),
+		msg("metadata", 11, ".google.protobuf.Struct"), msg("ping", 12, ".google.protobuf.Empty"), msg("anything", 13, ".google.protobuf.Value"),
+		msg("tags", 14, ".google.protobuf.ListValue"), msg("payload", 15, ".google.protobuf.Any"), repeated(msg("lines", 16, ".shrt.test.rich.v1.Line")),
+		mapField("lines_by_id", 17, ".shrt.test.rich.v1.OrderRequest.LinesByIdEntry"), enumField("channel", 18, ".shrt.test.rich.v1.Channel"),
+		proto3Optional(str("memo", 19), 2), inOneof(str("fast", 20), 1), inOneof(str("cheap", 21), 1),
+		msg("flagged", 22, ".google.protobuf.BoolValue"), msg("ratio", 23, ".google.protobuf.DoubleValue"), msg("first_line", 24, ".shrt.test.rich.v1.Line"))
+	m.NestedType = messages(mapEntry("LinesByIdEntry", ".shrt.test.rich.v1.Line"))
+	m.OneofDecl = []*descriptorpb.OneofDescriptorProto{{Name: proto.String("payment")}, {Name: proto.String("route")}, {Name: proto.String("_memo")}}
 	return m
 }
 
