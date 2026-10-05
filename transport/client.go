@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/http/httptrace"
 	neturl "net/url"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -105,7 +106,7 @@ func New(opts Options) *Client {
 		}
 	}
 	shallow := *hc
-	shallow.CheckRedirect = refuseRedirect
+	shallow.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	hc = &shallow
 	c := &Client{
 		baseURL:  strings.TrimRight(opts.BaseURL, "/"),
@@ -113,16 +114,11 @@ func New(opts Options) *Client {
 		headers:  opts.Headers,
 		hostOver: opts.HostOverride,
 	}
-	c.chain = Wrap(c.send, opts.Middlewares...)
-	return c
-}
-
-func Wrap(base Handler, mws ...Middleware) Handler {
-	h := base
-	for i := len(mws) - 1; i >= 0; i-- {
-		h = mws[i](h)
+	c.chain = c.send
+	for _, mw := range slices.Backward(opts.Middlewares) {
+		c.chain = mw(c.chain)
 	}
-	return h
+	return c
 }
 
 func (c *Client) Do(ctx context.Context, call *Call) (*Result, error) {
@@ -142,7 +138,7 @@ func (c *Client) Raw(ctx context.Context, call *Call) (*Result, error) {
 func (c *Client) BaseURL() string { return c.baseURL }
 
 func (c *Client) send(ctx context.Context, call *Call) (*Result, error) {
-	url := c.baseURL + normalizeProcedure(call.Procedure)
+	url := c.baseURL + "/" + strings.TrimPrefix(call.Procedure, "/")
 	body := call.Body
 	if len(body) == 0 {
 		body = []byte("{}")
@@ -244,10 +240,6 @@ func (c *Client) failed(ctx context.Context, what string, err error, sent bool) 
 
 var errResendRefused = errors.New("the request had already been sent and shrt never re-sends one")
 
-func refuseResend() (io.ReadCloser, error) {
-	return nil, errResendRefused
-}
-
 type noResend struct {
 	next http.RoundTripper
 }
@@ -259,14 +251,10 @@ func (n noResend) RoundTrip(req *http.Request) (*http.Response, error) {
 	}
 	if req.Body != nil && req.Body != http.NoBody {
 		clone := *req
-		clone.GetBody = refuseResend
+		clone.GetBody = func() (io.ReadCloser, error) { return nil, errResendRefused }
 		req = &clone
 	}
 	return next.RoundTrip(req)
-}
-
-func refuseRedirect(*http.Request, []*http.Request) error {
-	return http.ErrUseLastResponse
 }
 
 func decodeError(status int, raw []byte) *Error {
@@ -275,13 +263,6 @@ func decodeError(status int, raw []byte) *Error {
 		return &Error{Code: fmt.Sprintf("http_%d", status), Message: strings.TrimSpace(string(raw))}
 	}
 	return e
-}
-
-func normalizeProcedure(p string) string {
-	if !strings.HasPrefix(p, "/") {
-		return "/" + p
-	}
-	return p
 }
 
 func frame(flags byte, payload []byte) []byte {
@@ -327,7 +308,7 @@ func readStream(r io.Reader, want int) (*Result, error) {
 			Error *Error `json:"error"`
 		}
 		if err := json.Unmarshal(payload, &end); err == nil && end.Error != nil && end.Error.Code != "" {
-			res.Error, res.Status = end.Error, connectStatus(end.Error.Code)
+			res.Error, res.Status = end.Error, cmp.Or(connectStatuses[end.Error.Code], http.StatusInternalServerError)
 			res.Body, _ = json.Marshal(end.Error)
 		}
 		return done(), nil
@@ -335,29 +316,8 @@ func readStream(r io.Reader, want int) (*Result, error) {
 	return done(), nil
 }
 
-func connectStatus(code string) int {
-	switch code {
-	case "canceled":
-		return 499
-	case "invalid_argument", "failed_precondition", "out_of_range":
-		return http.StatusBadRequest
-	case "deadline_exceeded":
-		return http.StatusGatewayTimeout
-	case "not_found":
-		return http.StatusNotFound
-	case "already_exists", "aborted":
-		return http.StatusConflict
-	case "permission_denied":
-		return http.StatusForbidden
-	case "resource_exhausted":
-		return http.StatusTooManyRequests
-	case "unimplemented":
-		return http.StatusNotImplemented
-	case "unavailable":
-		return http.StatusServiceUnavailable
-	case "unauthenticated":
-		return http.StatusUnauthorized
-	default:
-		return http.StatusInternalServerError
-	}
-}
+var connectStatuses = map[string]int{"canceled": 499, "invalid_argument": http.StatusBadRequest, "failed_precondition": http.StatusBadRequest,
+	"out_of_range": http.StatusBadRequest, "deadline_exceeded": http.StatusGatewayTimeout, "not_found": http.StatusNotFound,
+	"already_exists": http.StatusConflict, "aborted": http.StatusConflict, "permission_denied": http.StatusForbidden,
+	"resource_exhausted": http.StatusTooManyRequests, "unimplemented": http.StatusNotImplemented,
+	"unavailable": http.StatusServiceUnavailable, "unauthenticated": http.StatusUnauthorized}

@@ -158,7 +158,7 @@ func (s *priorScan) goneAt(st *runner.StepRecord) string {
 		return ""
 	}
 	for _, value := range s.createdValues(st) {
-		if strings.Contains(why, value) || notFound(why) {
+		if strings.Contains(why, value) || strings.Contains(strings.NewReplacer("_", "", " ", "", "-", "").Replace(strings.ToLower(why)), "notfound") {
 			return fmt.Sprintf("Data created before it was gone after the re-login (step %s: %s)", st.ID, why)
 		}
 	}

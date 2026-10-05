@@ -1,6 +1,7 @@
 package contract
 
 import (
+	"slices"
 	"strconv"
 	"strings"
 
@@ -28,12 +29,7 @@ func IsPlaceholder(v any, how Strictness) bool {
 			return true
 		}
 	case []any:
-		for _, item := range t {
-			if !IsPlaceholder(item, how) {
-				return false
-			}
-		}
-		return true
+		return !slices.ContainsFunc(t, func(item any) bool { return !IsPlaceholder(item, how) })
 	case map[string]any:
 		for _, item := range t {
 			if !IsPlaceholder(item, how) {

@@ -57,22 +57,10 @@ func checkDocs(_ context.Context, cfg *config.Config, opts Options, r *Report) {
 		files = append(files, KitFile{Path: name, Want: want})
 	}
 	missing, drifted := installedDiff(cfg, config.DocsDir, files)
-	if len(missing) > 0 {
-		r.add(CheckDocs, LevelError,
-			fmt.Sprintf("%s/ is missing %s — the installed skill routes every question there",
-				config.DocsDir, strings.Join(missing, ", ")),
-			reinstallDocs)
-	}
-	if len(drifted) > 0 {
-		r.add(CheckDocs, LevelError,
-			fmt.Sprintf("%s/ has drifted from this binary in %s", config.DocsDir, strings.Join(drifted, ", ")),
-			"An agent reads the installed copy, and this binary enforces its own. Where they disagree the\n"+
-				"agent follows rules nothing checks, and a lint that should be red comes back green.\n"+reinstallDocs)
-	}
-	if len(missing) == 0 && len(drifted) == 0 {
-		r.add(CheckDocs, LevelOK,
-			fmt.Sprintf("%d installed doc(s) match the copy embedded in this binary", len(opts.DocNames)), "")
-	}
+	r.installed(CheckDocs, missing, drifted, reinstallDocs, config.DocsDir+"/ is missing %s — the installed skill routes every question there",
+		config.DocsDir+"/ has drifted from this binary in %s", "An agent reads the installed copy, and this binary enforces its own. Where they disagree the\n"+
+			"agent follows rules nothing checks, and a lint that should be red comes back green.\n",
+		fmt.Sprintf("%d installed doc(s) match the copy embedded in this binary", len(opts.DocNames)))
 }
 
 const reinstallKit = `rm -f .claude/skills/shrt/SKILL.md .claude/agents/shrt-contract-author.md && shrt init -build=false
@@ -87,20 +75,21 @@ func checkKit(_ context.Context, cfg *config.Config, opts Options, r *Report) {
 		r.add(CheckKit, LevelOK, "no agent kit installed under .claude/ (init -agents=false), so there is none to drift", "")
 		return
 	}
+	r.installed(CheckKit, missing, drifted, reinstallKit, "the agent kit is missing %s while the rest of it is installed",
+		"the agent kit has drifted from this binary in %s", "The skill and subagent are what an agent follows, and this binary enforces its own rules.\n"+
+			"Where they disagree the agent writes chains and contracts this build rejects or misreads.\n",
+		fmt.Sprintf("%d installed agent kit file(s) match the copy embedded in this binary", len(opts.Kit)))
+}
+
+func (r *Report) installed(check string, missing, drifted []string, fix, missingFormat, driftFormat, driftWhy, ok string) {
 	if len(missing) > 0 {
-		r.add(CheckKit, LevelError,
-			fmt.Sprintf("the agent kit is missing %s while the rest of it is installed", strings.Join(missing, ", ")),
-			reinstallKit)
+		r.add(check, LevelError, fmt.Sprintf(missingFormat, strings.Join(missing, ", ")), fix)
 	}
 	if len(drifted) > 0 {
-		r.add(CheckKit, LevelError,
-			fmt.Sprintf("the agent kit has drifted from this binary in %s", strings.Join(drifted, ", ")),
-			"The skill and subagent are what an agent follows, and this binary enforces its own rules.\n"+
-				"Where they disagree the agent writes chains and contracts this build rejects or misreads.\n"+reinstallKit)
+		r.add(check, LevelError, fmt.Sprintf(driftFormat, strings.Join(drifted, ", ")), driftWhy+fix)
 	}
 	if len(missing) == 0 && len(drifted) == 0 {
-		r.add(CheckKit, LevelOK,
-			fmt.Sprintf("%d installed agent kit file(s) match the copy embedded in this binary", len(opts.Kit)), "")
+		r.add(check, LevelOK, ok, "")
 	}
 }
 
@@ -516,7 +505,8 @@ func checkEnvelopePath(cat *catalog.Catalog, cfg *config.Config, r *Report) {
 	configured := strings.TrimSpace(cfg.Conventions.EnvelopePath)
 	found := catalog.DetectEnvelope(cat)
 	if configured != "" {
-		if declaredSomewhere(cat, configured) {
+		segs := chain.SplitPath(configured)
+		if slices.ContainsFunc(cat.Methods(), func(m *catalog.Method) bool { return catalog.HasPath(catalog.DescribeMessage(m.Output()).Fields, segs) }) {
 			r.add(CheckConventions, LevelOK,
 				fmt.Sprintf("envelope_path %q is a field of at least one response message", configured), "")
 			return
@@ -594,16 +584,6 @@ func effectiveEnvelopePath(cat *catalog.Catalog, cfg *config.Config) string {
 		return found[0].Path
 	}
 	return chain.DefaultEnvelopePath
-}
-
-func declaredSomewhere(cat *catalog.Catalog, path string) bool {
-	segs := chain.SplitPath(path)
-	for _, m := range cat.Methods() {
-		if catalog.HasPath(catalog.DescribeMessage(m.Output()).Fields, segs) {
-			return true
-		}
-	}
-	return false
 }
 
 func DescriptorMatchesRebuild(ctx context.Context, cfg *config.Config) (bool, error) {

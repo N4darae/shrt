@@ -81,12 +81,7 @@ func responsePathsTo(fields []*catalog.Field, leaf, prefix string) []string {
 }
 
 func carriesLeaf(fields []*catalog.Field, leaf string) bool {
-	for _, f := range fields {
-		if f.Name == leaf || carriesLeaf(f.Fields, leaf) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(fields, func(f *catalog.Field) bool { return f.Name == leaf || carriesLeaf(f.Fields, leaf) })
 }
 
 func ScaffoldOverlay(domain string, methods []*catalog.Method, existing *Library, all []*catalog.Method) *yaml.Node {

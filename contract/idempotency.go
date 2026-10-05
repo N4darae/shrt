@@ -17,14 +17,7 @@ var (
 )
 
 func (p *Plan) probeIdempotency(lib *Library, isTarget func(*chain.Step) bool) {
-	for _, st := range append([]*chain.Step{}, p.Chain.Steps...) {
-		if !isTarget(st) || chain.IsReadOnlyCall(st.Call) {
-			continue
-		}
-		m, err := p.cat.Lookup(st.Call)
-		if err != nil {
-			continue
-		}
+	for st, m := range p.withMethods(p.targets(isTarget, isRead)) {
 		var keyField *catalog.Field
 		for _, f := range catalog.DescribeMessage(m.Input()).Fields {
 			if isIdempotencyField(f) {

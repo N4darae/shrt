@@ -29,14 +29,7 @@ func listLimit(c *RPCContract, listPath string) (int, bool) {
 }
 
 func (p *Plan) probeListCaps(lib *Library, isTarget func(*chain.Step) bool) {
-	for _, st := range append([]*chain.Step{}, p.Chain.Steps...) {
-		if !isTarget(st) || !chain.IsReadOnlyCall(st.Call) || effectOutcome(st) != outcomeSuccess {
-			continue
-		}
-		m, err := p.cat.Lookup(st.Call)
-		if err != nil {
-			continue
-		}
+	for st, m := range p.withMethods(p.targets(isTarget, isWrite, unsuccessful)) {
 		list := repeatedMessageField(m)
 		if list == nil {
 			continue

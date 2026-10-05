@@ -60,14 +60,8 @@ func unknownIDFailure(failures []Failure, field string, ref Ref, only bool) (Fai
 }
 
 func (p *Plan) probeUnknownIDs(lib *Library, isTarget func(*chain.Step) bool) {
-	for _, st := range append([]*chain.Step{}, p.Chain.Steps...) {
-		if !isTarget(st) || p.isLogin(st.Call) {
-			continue
-		}
-		c, m, ok := p.contractOf(lib, st.Call)
-		if !ok {
-			continue
-		}
+	for st := range p.contracted(lib, isTarget, p.loginStep) {
+		c, m, _ := p.contractOf(lib, st.Call)
 		failures := notFoundFailures(lib, st.Call)
 		if len(failures) == 0 {
 			continue

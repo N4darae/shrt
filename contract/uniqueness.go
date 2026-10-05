@@ -107,14 +107,8 @@ func stableAcrossSteps(v string) string {
 }
 
 func (p *Plan) probeUniqueness(lib *Library, isTarget func(*chain.Step) bool) {
-	for _, st := range append([]*chain.Step{}, p.Chain.Steps...) {
-		if !isTarget(st) || chain.IsReadOnlyCall(st.Call) {
-			continue
-		}
-		c, m, ok := p.contractOf(lib, st.Call)
-		if !ok {
-			continue
-		}
+	for st := range p.contracted(lib, isTarget, isRead) {
+		c, m, _ := p.contractOf(lib, st.Call)
 		done := map[string]bool{}
 		for _, f := range lib.AllFailures(st.Call) {
 			noun, unique := uniquenessNoun(f)

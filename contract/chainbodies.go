@@ -149,10 +149,6 @@ func envelopeOnlyShort(rpc string, facts []string) string {
 		rpc, strings.Join(clipList(facts, 4), ", "))
 }
 
-func EnvelopeOnlyMessage(rpc string, facts []string) string {
-	return envelopeOnlyShort(rpc, facts) + ". " + envelopeOnlyWhy
-}
-
 func stepExpectsSuccess(s *chain.Step) bool {
 	for _, e := range s.Expect {
 		if chain.ExpectsTransportRefusal(e) || chain.PinsVerdictCode(e) {

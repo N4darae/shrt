@@ -378,12 +378,7 @@ func foldSegments(segs []string) []string {
 
 func (m *Masker) masked(path string) bool {
 	segs := foldSegments(strings.Split(path, "."))
-	for _, p := range m.split {
-		if matchFolded(p, segs) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(m.split, func(p []string) bool { return matchFolded(p, segs) })
 }
 
 func Match(pattern, path string) bool {

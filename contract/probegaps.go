@@ -20,28 +20,20 @@ func AuthProbeGaps(chains []*chain.Chain, lib *Library, cat *catalog.Catalog, op
 	}
 	called, tokenProbed := map[string]bool{}, map[string]bool{}
 	asProfile := map[string]map[string]bool{}
-	for _, c := range chains {
-		if c == nil {
-			continue
+	for _, s := range chainSteps(chains) {
+		rpc := canonicalCall(cat, s.Call)
+		called[rpc] = true
+		if s.SkipAuth || s.Auth == invalidProfile {
+			tokenProbed[rpc] = true
 		}
-		for _, s := range c.Steps {
-			if s == nil {
-				continue
+		if s.Auth != "" && s.Auth != invalidProfile {
+			if asProfile[rpc] == nil {
+				asProfile[rpc] = map[string]bool{}
 			}
-			rpc := canonicalCall(cat, s.Call)
-			called[rpc] = true
-			if s.SkipAuth || s.Auth == invalidProfile {
-				tokenProbed[rpc] = true
-			}
-			if s.Auth != "" && s.Auth != invalidProfile {
-				if asProfile[rpc] == nil {
-					asProfile[rpc] = map[string]bool{}
-				}
-				asProfile[rpc][s.Auth] = true
-			}
+			asProfile[rpc][s.Auth] = true
 		}
 	}
-	p := &Plan{cat: cat, opts: opts}
+	p := newPlan(&Plan{cat: cat, opts: opts})
 	out := []ProbeGap{}
 	for _, m := range cat.Methods() {
 		if m.StreamRefusal() != "" || p.isLogin(m.FullName) || !called[m.FullName] {

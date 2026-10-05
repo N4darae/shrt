@@ -26,14 +26,8 @@ func namingClause(texts []string, word string, kind *regexp.Regexp) string {
 }
 
 func (p *Plan) probeComposedTransitions(lib *Library, isTarget func(*chain.Step) bool) {
-	for _, st := range append([]*chain.Step{}, p.Chain.Steps...) {
-		if !isTarget(st) || chain.IsReadOnlyCall(st.Call) || p.isLogin(st.Call) {
-			continue
-		}
-		c, m, ok := p.contractOf(lib, st.Call)
-		if !ok {
-			continue
-		}
+	for st := range p.contracted(lib, isTarget, isRead, p.loginStep) {
+		c, m, _ := p.contractOf(lib, st.Call)
 		for _, e := range p.entityStates(st, c) {
 			values := e.state.EnumValues[1:]
 			short := enumShort(e.state.EnumValues)
@@ -140,9 +134,6 @@ func (p *Plan) startedCopy(lib *Library, act *chain.Step, e stateEntity, sk skip
 	id := p.freeStepID(act.ID + "_from_" + strings.ToLower(sk.state))
 	fixture, again := p.actOnFixture(lib, act, e, id, fmt.Sprintf("left %s for %s to act on", sk.state, id))
 	again.Description = fmt.Sprintf("as %s, on %s still %s: %s.", act.ID, withArticle(e.carrier), sk.state, sk.why())
-	if p.unneeded == nil {
-		p.unneeded = map[*chain.Step]string{}
-	}
 	p.unneeded[again] = sk.need
 	return fixture, again
 }

@@ -14,14 +14,7 @@ var increaseWord = lazyRegexp(`(?i)\b(increase[sd]?|add[sd]?|raise[sd]?|top[s]? 
 
 func (p *Plan) assertOutcomes(lib *Library) {
 	ids := []string{}
-	for _, st := range p.Chain.Steps {
-		if st.AllowFail || isRefusalStep(st) || !AssertsOnlyVerdict(st) {
-			continue
-		}
-		m, err := p.cat.Lookup(st.Call)
-		if err != nil {
-			continue
-		}
+	for st, m := range p.called(notVerdictOnly) {
 		c, ok := lib.Get(m.FullName)
 		if !ok || len(DeclaredFacts(c)) == 0 {
 			continue
@@ -45,17 +38,16 @@ func (p *Plan) assertOutcomes(lib *Library) {
 }
 
 func (p *Plan) verdictOnlyLeft(lib *Library) bool {
-	for _, st := range p.Chain.Steps {
-		if st.AllowFail || isRefusalStep(st) || !AssertsOnlyVerdict(st) {
-			continue
-		}
-		if m, err := p.cat.Lookup(st.Call); err == nil {
-			if c, ok := lib.Get(m.FullName); ok && len(DeclaredFacts(c)) > 0 {
-				return true
-			}
+	for _, m := range p.called(notVerdictOnly) {
+		if c, ok := lib.Get(m.FullName); ok && len(DeclaredFacts(c)) > 0 {
+			return true
 		}
 	}
 	return false
+}
+
+func notVerdictOnly(st *chain.Step) bool {
+	return st.AllowFail || isRefusalStep(st) || !AssertsOnlyVerdict(st)
 }
 
 func (p *Plan) outcomeExpectations(st *chain.Step, m *catalog.Method, c *RPCContract) []chain.Expectation {
@@ -139,14 +131,9 @@ func stateExpectations(car *catalog.Field, c *RPCContract) []chain.Expectation {
 }
 
 func (p *Plan) assertStates(lib *Library) {
-	for _, st := range p.Chain.Steps {
-		if st.AllowFail || isRefusalStep(st) || effectOutcome(st) != outcomeSuccess || chain.IsReadOnlyCall(st.Call) || p.streams(st) {
-			continue
-		}
-		m, err := p.cat.Lookup(st.Call)
-		if err != nil {
-			continue
-		}
+	for st, m := range p.called(func(st *chain.Step) bool {
+		return st.AllowFail || isRefusalStep(st) || effectOutcome(st) != outcomeSuccess || chain.IsReadOnlyCall(st.Call) || p.streams(st)
+	}) {
 		c, ok := lib.Get(m.FullName)
 		car := singleCarrier(m)
 		if !ok || car == nil || len(DeclaredFacts(c)) == 0 {
@@ -172,14 +159,7 @@ func sameScalar(fields []*catalog.Field, f *catalog.Field) bool {
 }
 
 func (p *Plan) assertStreamEcho() {
-	for _, st := range p.Chain.Steps {
-		if !p.streams(st) || st.AllowFail || isRefusalStep(st) {
-			continue
-		}
-		m, err := p.cat.Lookup(st.Call)
-		if err != nil {
-			continue
-		}
+	for st, m := range p.called(func(st *chain.Step) bool { return !p.streams(st) || st.AllowFail || isRefusalStep(st) }) {
 		car := singleCarrier(m)
 		if car == nil {
 			continue
@@ -198,14 +178,7 @@ func (p *Plan) assertStreamEcho() {
 }
 
 func (p *Plan) assertTimestamps(lib *Library) {
-	for _, st := range p.Chain.Steps {
-		if isRefusalStep(st) || st.AllowFail {
-			continue
-		}
-		m, err := p.cat.Lookup(st.Call)
-		if err != nil {
-			continue
-		}
+	for st, m := range p.called(func(st *chain.Step) bool { return isRefusalStep(st) || st.AllowFail }) {
 		c, ok := lib.Get(m.FullName)
 		if !ok {
 			c = &RPCContract{}

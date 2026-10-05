@@ -14,14 +14,8 @@ import (
 var perItemFailure = lazyRegexp(`(?i)\bon that (?:line|item|entry)\b|\b(?:line|item|entry) (?:only|alone)\b|\bper[- ](?:line|item|entry)\b|\bindependently\b|\bthe others? (?:still )?(?:appl|succeed|go through)`)
 
 func (p *Plan) probeBatch(lib *Library, isTarget func(*chain.Step) bool) {
-	for _, st := range append([]*chain.Step{}, p.Chain.Steps...) {
-		if !isTarget(st) || chain.IsReadOnlyCall(st.Call) {
-			continue
-		}
-		c, m, ok := p.contractOf(lib, st.Call)
-		if !ok {
-			continue
-		}
+	for st := range p.contracted(lib, isTarget, isRead) {
+		c, m, _ := p.contractOf(lib, st.Call)
 		if results, listPath, verdict := p.perItemResults(lib, st.Call, c, m); results != nil {
 			p.addPartialBatch(lib, st, c, m, results, listPath, verdict)
 		}
@@ -37,7 +31,7 @@ func (p *Plan) perItemResults(lib *Library, rpc string, c *RPCContract, m *catal
 	if results == nil || !results.Repeated || results.Kind != "message" {
 		return nil, "", ""
 	}
-	if c.Effects.perItem() || perItemFailure().MatchString(c.Summary) || slices.ContainsFunc(lib.AllFailures(rpc), func(f Failure) bool { return perItemFailure().MatchString(f.When) }) {
+	if c.Effects.any(func(e *Effect) bool { return e.Is == EffectPerItem }) || perItemFailure().MatchString(c.Summary) || slices.ContainsFunc(lib.AllFailures(rpc), func(f Failure) bool { return perItemFailure().MatchString(f.When) }) {
 		return results, listPath, verdict
 	}
 	return nil, "", ""

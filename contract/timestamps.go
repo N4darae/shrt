@@ -2,6 +2,7 @@ package contract
 
 import (
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -46,12 +47,7 @@ func durationSeconds(text string) (int64, string, bool) {
 
 func isStampName(name string) bool {
 	lower := strings.ToLower(name)
-	for _, w := range []string{"created", "updated", "modified", "issued", "inserted", "registered"} {
-		if strings.HasPrefix(lower, w) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc([]string{"created", "updated", "modified", "issued", "inserted", "registered"}, func(w string) bool { return strings.HasPrefix(lower, w) })
 }
 
 func contractNote(c *RPCContract, path string) string {

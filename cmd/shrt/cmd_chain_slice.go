@@ -179,7 +179,8 @@ func sliceChain(ctx context.Context, args []string, keptRed *sliceKeptRed) error
 		}
 	}
 	if *verify && len(res.MissingVars) > 0 {
-		return missingVarsError(res, rec)
+		return fmt.Errorf("the slice reads var(s) %s, which %s does not declare: pass %s",
+			strings.Join(res.MissingVars, ", "), res.Source, strings.Join(missingVarFlags(res, rec), " "))
 	}
 	va := sliceVerifyArgs{
 		vars: vars, quiet: *asJSON, verbose: *verbose, persist: write.set, name: writeArg, keep: *keep,
@@ -408,7 +409,7 @@ func printSlice(res *chain.SliceResult, written string, verdict *sliceVerdict, v
 	}
 	printSlicePins(res)
 	fmt.Printf("\n%s\n", sliceCountLine(res, verdict))
-	if !verdict.settled() {
+	if verdict == nil || verdict.Outcome == sliceDidNotRun {
 		fmt.Printf("%s\n", hypothesisLine)
 	}
 	if written != "" {
@@ -772,10 +773,6 @@ func refusalText(v chain.Verdict) string {
 	return out
 }
 
-func (v *sliceVerdict) settled() bool {
-	return v != nil && v.Outcome != sliceDidNotRun
-}
-
 func (v *sliceVerdict) err() error {
 	switch v.Outcome {
 	case sliceIntermittent:
@@ -864,7 +861,7 @@ func runSliceVerify(ctx context.Context, e *env, res *chain.SliceResult, rec *ru
 	v.ByDistance = clockDistanceLines(res, v.Source, v.Replay, same)
 	blocked := blockedReads(v.Source, v.Replay)
 	upstreamOnly := false
-	if evaluatedBlocked(blocked) {
+	if len(blocked) > 0 && !slices.ContainsFunc(blocked, func(b blockedRead) bool { return b.eval == nil }) {
 		v.Differences = compareVerdictsAt(target, v.Source, withoutBlocked(v.Source, v.Replay, blocked), same, "slice")
 		upstreamOnly = len(v.Differences) == 0
 	}
@@ -1360,12 +1357,6 @@ func missingVarFlags(res *chain.SliceResult, rec *runner.Record) []string {
 	return out
 }
 
-func missingVarsError(res *chain.SliceResult, rec *runner.Record) error {
-	flags := missingVarFlags(res, rec)
-	return fmt.Errorf("the slice reads var(s) %s, which %s does not declare: pass %s",
-		strings.Join(res.MissingVars, ", "), res.Source, strings.Join(flags, " "))
-}
-
 func reachedStep(rec *runner.Record, step string) (bool, string) {
 	sr, ok := rec.Step(step)
 	if !ok {
@@ -1472,13 +1463,6 @@ func newerFailing(e *env, rec *runner.Record) *runner.Record {
 		}
 	}
 	return nil
-}
-
-func stepStatus(rec *runner.Record, step string) string {
-	if sr, ok := rec.Step(step); ok {
-		return sr.Status
-	}
-	return "was not run"
 }
 
 func loadRunReaching(e *env, chainName, ref, runID, step string) (*runner.Record, error) {

@@ -357,7 +357,7 @@ var indexPattern = regexp.MustCompile(`\.[0-9]+`)
 func beyondVerdict(st *runner.StepRecord, envelope string) []string {
 	var out []string
 	for _, e := range st.Expect {
-		if !atEnvelope(e.Path, envelope) && !chain.IsTransportPath(e.Path) {
+		if e.Path != envelope && streamedPrefix.ReplaceAllString(e.Path, "") != envelope && !chain.IsTransportPath(e.Path) {
 			out = append(out, e.Path)
 		}
 	}
@@ -430,10 +430,6 @@ func answerKind(st *runner.StepRecord, envelope string) string {
 }
 
 var streamedPrefix = regexp.MustCompile(`^` + catalog.StreamMessages + `\.\d+\.`)
-
-func atEnvelope(path, envelope string) bool {
-	return path == envelope || streamedPrefix.MatchString(path) && streamedPrefix.ReplaceAllString(path, "") == envelope
-}
 
 func proposalHeader(p *Proposal, rec *runner.Record) string {
 	var b strings.Builder
@@ -925,12 +921,10 @@ func alsoBaselined(rec *runner.Record, st *runner.StepRecord) string {
 }
 
 func listKey(path string) string {
-	out := []string{}
-	for _, seg := range strings.Split(path, ".") {
-		if _, err := strconv.Atoi(seg); err != nil && seg != "" {
-			out = append(out, seg)
-		}
-	}
+	out := slices.DeleteFunc(strings.Split(path, "."), func(seg string) bool {
+		_, err := strconv.Atoi(seg)
+		return err == nil || seg == ""
+	})
 	return namecase.Fold(strings.Join(out, "."))
 }
 
@@ -945,12 +939,7 @@ func baselineNoise(v any, fixtures []string) bool {
 	if _, err := time.Parse(time.RFC3339Nano, text); err == nil {
 		return true
 	}
-	for _, f := range fixtures {
-		if strings.Contains(text, f) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(fixtures, func(f string) bool { return strings.Contains(text, f) })
 }
 
 func assertedValues(st *runner.StepRecord, envelope string) []string {

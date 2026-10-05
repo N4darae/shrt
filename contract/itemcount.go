@@ -14,9 +14,6 @@ import (
 const manyItems = 3
 
 func (p *Plan) recordPreparation(clone, original string) {
-	if p.preps == nil {
-		p.preps = map[string][]string{}
-	}
 	if !slices.Contains(p.preps[clone], original) {
 		p.preps[clone] = append(p.preps[clone], original)
 	}
@@ -60,10 +57,7 @@ func (p *Plan) sentLists(st *chain.Step) []itemList {
 
 func (p *Plan) probeItemCounts(lib *Library, isTarget func(*chain.Step) bool) {
 	thirds := map[string]string{}
-	for _, st := range append([]*chain.Step{}, p.Chain.Steps...) {
-		if !isTarget(st) || chain.IsReadOnlyCall(st.Call) || p.isLogin(st.Call) {
-			continue
-		}
+	for st := range p.targets(isTarget, isRead, p.loginStep) {
 		il, ok := p.itemListOf(st)
 		if !ok {
 			for _, src := range referencedSteps(st.Body) {
@@ -204,9 +198,6 @@ func (p *Plan) manyItems(lib *Library, st *chain.Step, il itemList, third any, t
 	v.Expect = append(v.Expect,
 		chain.Expectation{Path: fmt.Sprintf("%s.%d.%s", listPath, lotsOfItems-1, verdict), Equals: chain.EnvelopeOK()},
 		chain.Expectation{Path: fmt.Sprintf("%s.%d", listPath, lotsOfItems), Exists: boolPtr(false)})
-	if p.middles == nil {
-		p.middles = map[*chain.Step]string{}
-	}
 	p.middles[v] = listPath
 	results, _ := catalog.FieldAt(out, chain.SplitPath(listPath))
 	middle := map[int]bool{}
@@ -240,12 +231,7 @@ func readsValue(v any, id string) bool {
 	return slices.ContainsFunc(allStepRefs(v), func(ref [2]string) bool { return ref[0] == id })
 }
 
-func (p *Plan) reserveStepID(base string) string {
-	if p.reserved == nil {
-		p.reserved = map[string]bool{}
-	}
-	return p.freeProbeID(base, p.reserved)
-}
+func (p *Plan) reserveStepID(base string) string { return p.freeProbeID(base, p.reserved) }
 
 func (p *Plan) itemProducer(sec producerSecond, n int) (string, []*chain.Step) {
 	orig := p.stepByID(sec.src)

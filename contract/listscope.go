@@ -105,14 +105,9 @@ func (p *Plan) noteUnscopedList(t *listTarget, n int) {
 
 func (p *Plan) maskUnscopedLists() {
 	masked := []string{}
-	for _, st := range p.Chain.Steps {
-		if !chain.IsReadOnlyCall(st.Call) || effectOutcome(st) != outcomeSuccess || !listUnscoped(st) {
-			continue
-		}
-		m, err := p.cat.Lookup(st.Call)
-		if err != nil {
-			continue
-		}
+	for st, m := range p.called(func(st *chain.Step) bool {
+		return !chain.IsReadOnlyCall(st.Call) || effectOutcome(st) != outcomeSuccess || !listUnscoped(st)
+	}) {
 		list := repeatedMessageField(m)
 		if list == nil {
 			continue

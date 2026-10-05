@@ -13,7 +13,7 @@ import (
 )
 
 func scaffoldPlan(name, noun string, refs, ids []string, lib *Library, cat *catalog.Catalog) (*Plan, error) {
-	p := &Plan{stepOf: map[string]string{}, cat: cat, reserved: map[string]bool{}, noun: noun}
+	p := newPlan(&Plan{cat: cat, noun: noun})
 	for _, id := range ids {
 		p.reserved[id] = true
 	}
@@ -203,9 +203,6 @@ func (p *Plan) assertContracts(lib *Library) {
 	r := p.effectRules(lib)
 	if len(r.increase) == 0 && len(r.total) == 0 {
 		return
-	}
-	if p.met == nil {
-		p.met = map[[2]string]bool{}
 	}
 	asserted, _, _ := p.effectPass(lib, r, true)
 	ids := []string{}

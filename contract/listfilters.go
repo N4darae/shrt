@@ -26,10 +26,7 @@ type listScope struct {
 }
 
 func (p *Plan) probeListFilters(lib *Library, isTarget func(*chain.Step) bool) {
-	for _, st := range append([]*chain.Step{}, p.Chain.Steps...) {
-		if !isTarget(st) {
-			continue
-		}
+	for st := range p.targets(isTarget) {
 		t := p.listTargetFor(st, true)
 		if t == nil || len(t.producers) == 0 {
 			continue

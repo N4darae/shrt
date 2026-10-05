@@ -36,10 +36,6 @@ func (p *Plan) refusedCreate(st *chain.Step) bool {
 	return false
 }
 
-func (p *Plan) allRefusedCreates(refused []*chain.Step) bool {
-	return len(refused) > 0 && !slices.ContainsFunc(refused, func(st *chain.Step) bool { return !p.refusedCreate(st) })
-}
-
 func (p *Plan) textOnlyReaders(lib *Library, st *chain.Step, createdPath string) []string {
 	out := []string{}
 	add := func(prod *chain.Step, idPath string) {

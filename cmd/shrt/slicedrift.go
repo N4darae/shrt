@@ -57,13 +57,14 @@ func sliceDrift(e *env, res *chain.SliceResult, rec, sliceRec *runner.Record, pa
 }
 
 func movedStatus(e *env, rec *runner.Record, step string) string {
-	s := stepStatus(rec, step)
-	if s != runner.StatusPassed {
-		return s
+	if sr, ok := rec.Step(step); !ok {
+		return "was not run"
+	} else if sr.Status != runner.StatusPassed {
+		return sr.Status
 	}
 	c, err := chain.Resolve(e.chainsDir(), rec.Chain)
 	if ref, _ := sliceReference(e, rec); ref != nil && err == nil && len(targetChanges(e, c, step, ref, rec)) > 0 {
 		return "drifted"
 	}
-	return s
+	return runner.StatusPassed
 }

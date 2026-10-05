@@ -672,7 +672,7 @@ func (p *Plan) effectPass(lib *Library, r *effectRules, apply bool) (map[string]
 			}
 		}
 		if r.orders[rpc] {
-			handled = p.recordOrder(lib, st, rpc, out, md, r, mark) || handled
+			p.recordOrder(lib, st, rpc, out, md, r, mark)
 		}
 		if v := r.reserve[rpc]; v != nil {
 			handled = true
@@ -742,12 +742,9 @@ func (p *Plan) noteBelowZero(r *effectRules, md *effectModel) {
 		}
 		rpc := canonicalCall(p.cat, st.Call)
 		s := md.stockOf[e]
-		adders := []string{}
-		for _, a := range chain.SortedKeys(r.increase) {
-			if r.increase[a].entityRPC == s.entityRPC && r.increase[a].sign > 0 {
-				adders = append(adders, a)
-			}
-		}
+		adders := slices.DeleteFunc(chain.SortedKeys(r.increase), func(a string) bool {
+			return r.increase[a].entityRPC != s.entityRPC || r.increase[a].sign <= 0
+		})
 		need := "the rpc that adds it"
 		if len(adders) > 0 {
 			need = strings.Join(adders, ", ")
@@ -800,12 +797,10 @@ func (md *effectModel) replaceEcho(st *chain.Step, path string, v int64) bool {
 }
 
 func (md *effectModel) echoes(st *chain.Step) bool {
-	for _, e := range st.Expect {
-		if text, _ := e.Equals.(string); strings.Contains(text, "${"+md.at.ID+".") {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(st.Expect, func(e chain.Expectation) bool {
+		text, _ := e.Equals.(string)
+		return strings.Contains(text, "${"+md.at.ID+".")
+	})
 }
 
 func (md *effectModel) set(st *chain.Step, path string, v int64) bool {
@@ -843,15 +838,9 @@ func (p *Plan) startsEmpty(lib *Library, rpc string, s *stockRule) bool {
 	if !ok {
 		return false
 	}
-	if c.Effects.is(s.moved, EffectZero) {
-		return true
-	}
-	for _, m := range startsAtZero().FindAllStringSubmatch(c.Summary, -1) {
-		if slices.Contains(s.words, strings.ToLower(m[1])) {
-			return true
-		}
-	}
-	return false
+	return c.Effects.is(s.moved, EffectZero) || slices.ContainsFunc(startsAtZero().FindAllStringSubmatch(c.Summary, -1), func(m []string) bool {
+		return slices.Contains(s.words, strings.ToLower(m[1]))
+	})
 }
 
 func (p *Plan) heldState(lib *Library, st *chain.Step) string {
@@ -869,10 +858,10 @@ func (p *Plan) heldState(lib *Library, st *chain.Step) string {
 	return ""
 }
 
-func (p *Plan) recordOrder(lib *Library, st *chain.Step, rpc string, out int, md *effectModel, r *effectRules, mark func(string, string)) bool {
+func (p *Plan) recordOrder(lib *Library, st *chain.Step, rpc string, out int, md *effectModel, r *effectRules, mark func(string, string)) {
 	c, m, ok := p.contractOf(lib, rpc)
 	if !ok {
-		return false
+		return
 	}
 	for _, f := range catalog.DescribeMessage(m.Input()).Fields {
 		if !isIdempotencyField(f) {
@@ -893,18 +882,18 @@ func (p *Plan) recordOrder(lib *Library, st *chain.Step, rpc string, out int, md
 					mark("total", st.ID)
 				}
 			}
-			return false
+			return
 		}
 	}
 	if out != outcomeSuccess {
-		return false
+		return
 	}
 	list, itemID, itemQty, entity := p.lineItems(rpc, c, "")
 	if l, ok := r.lines[rpc]; ok {
 		list, itemID, itemQty, entity = l.list, l.itemID, l.itemQty, l.entity
 	}
 	if list == "" {
-		return false
+		return
 	}
 	o := &modelOrder{}
 	items, _ := st.Body[list].([]any)
@@ -934,7 +923,6 @@ func (p *Plan) recordOrder(lib *Library, st *chain.Step, rpc string, out int, md
 			mark("total", st.ID)
 		}
 	}
-	return false
 }
 
 func (p *Plan) stockTouched(md *effectModel, st *chain.Step) []string {
@@ -988,7 +976,7 @@ func (p *Plan) restoreOrForget(lib *Library, st *chain.Step, rpc string, out int
 	for _, k := range chain.SortedKeys(c.Exports) {
 		texts = append(texts, c.Exports[k])
 	}
-	stated := c.Effects.restoresAny()
+	stated := c.Effects.any(func(e *Effect) bool { return e.Restore != "" })
 	if !o.reserved {
 		return stated || restoreWord().MatchString(strings.Join(texts, " "))
 	}

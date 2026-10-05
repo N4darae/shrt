@@ -134,16 +134,8 @@ func (es Effects) increases() bool {
 	return es.any(func(e *Effect) bool { return e.Increase != "" && e.Of == "" })
 }
 
-func (es Effects) perItem() bool {
-	return es.any(func(e *Effect) bool { return e.Is == EffectPerItem })
-}
-
 func (es Effects) restores(state string) bool {
 	return es.any(func(e *Effect) bool { return e.Restore != "" && SameState(e.Restore, state) })
-}
-
-func (es Effects) restoresAny() bool {
-	return es.any(func(e *Effect) bool { return e.Restore != "" })
 }
 
 func SameState(a, b string) bool {
@@ -385,13 +377,10 @@ func resolveEffects(rpc string, c *RPCContract, lib *Library, cat *catalog.Catal
 }
 
 func wiredWrites(c *RPCContract, cat *catalog.Catalog) []string {
-	out := []string{}
-	for _, name := range chain.SortedKeys(c.Fields) {
-		if _, ok := writeRef(c, name, cat); ok && !strings.Contains(name, ".") {
-			out = append(out, name)
-		}
-	}
-	return out
+	return slices.DeleteFunc(chain.SortedKeys(c.Fields), func(name string) bool {
+		_, ok := writeRef(c, name, cat)
+		return !ok || strings.Contains(name, ".")
+	})
 }
 
 func lineSources(c *RPCContract, in []*catalog.Field, list string, cat *catalog.Catalog) (string, []string) {

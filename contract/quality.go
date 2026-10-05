@@ -43,12 +43,12 @@ func (t QualityTerm) InPhase(phase string) bool {
 	return phase == "" || phase == PhaseAll || phase == t.Phase
 }
 
-func ValidPhase(phase string) bool {
+func CheckPhase(phase string) error {
 	switch phase {
 	case "", PhaseAll, PhaseHappy, PhaseFailure:
-		return true
+		return nil
 	}
-	return false
+	return fmt.Errorf("unknown -phase %q, want %s, %s or %s", phase, PhaseHappy, PhaseFailure, PhaseAll)
 }
 
 func QualityTerms() []QualityTerm {

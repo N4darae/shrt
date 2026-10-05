@@ -119,7 +119,7 @@ func noteMovedSteps(path, line string) error {
 
 func pinRound(ctx context.Context, e *env, c *chain.Chain, ref string, round int) (string, string, error) {
 	rec, _ := newestRecordReaching(e, c.Name, "", "", false)
-	if rec == nil || rec.ChainDigest != c.Digest() || !ranEveryStep(c, rec) {
+	if rec == nil || rec.ChainDigest != c.Digest() || slices.ContainsFunc(c.Steps, func(s *chain.Step) bool { _, ok := rec.Step(s.ID); return !ok }) {
 		out, runErr := quietly(func() error { return runRun(ctx, []string{ref, "-keep-going", "-quiet"}) })
 		next, _ := newestRecordReaching(e, c.Name, "", "", false)
 		if next == nil || rec != nil && next.RunID == rec.RunID {
@@ -145,7 +145,7 @@ func pinRound(ctx context.Context, e *env, c *chain.Chain, ref string, round int
 	if len(failing) == 0 {
 		return "", "", fmt.Errorf("not pinned: no step of run %s failed an expectation, and kept_red pins failed expectations only", rec.RunID)
 	}
-	if other := slicesWithout(failedSteps(rec), failing); len(other) > 0 {
+	if other := slices.DeleteFunc(failedSteps(rec), func(id string) bool { return slices.Contains(failing, id) }); len(other) > 0 {
 		return "", "", fmt.Errorf("not pinned: %s in run %s errored rather than failed an expectation, so no kept_red can pin it: shrt run %s says why",
 			strings.Join(other, ", "), rec.RunID, ref)
 	}
@@ -249,36 +249,11 @@ func failureShape(rec *runner.Record, id string) string {
 	return strings.Join(paths, "\x00")
 }
 
-func ranEveryStep(c *chain.Chain, rec *runner.Record) bool {
-	for _, s := range c.Steps {
-		if _, ok := rec.Step(s.ID); !ok {
-			return false
-		}
-	}
-	return true
-}
-
 func expectationFailures(rec *runner.Record) []string {
 	out := []string{}
 	for _, st := range rec.Steps {
-		if st == nil || st.Status != runner.StatusFailed {
-			continue
-		}
-		for _, x := range st.Expect {
-			if !x.Passed && x.Rule != "unevaluated" {
-				out = append(out, st.ID)
-				break
-			}
-		}
-	}
-	return out
-}
-
-func slicesWithout(all, drop []string) []string {
-	out := []string{}
-	for _, s := range all {
-		if !slices.Contains(drop, s) {
-			out = append(out, s)
+		if st != nil && st.Status == runner.StatusFailed && slices.ContainsFunc(st.Expect, func(x chain.ExpectResult) bool { return !x.Passed && x.Rule != "unevaluated" }) {
+			out = append(out, st.ID)
 		}
 	}
 	return out

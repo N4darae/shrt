@@ -160,14 +160,8 @@ var largeQuantities = []int64{1250, largeValue}
 
 func (p *Plan) probeBoundaries(lib *Library, isTarget func(*chain.Step) bool) {
 	rules := p.effectRules(lib)
-	for _, st := range append([]*chain.Step{}, p.Chain.Steps...) {
-		if !isTarget(st) || chain.IsReadOnlyCall(st.Call) {
-			continue
-		}
-		c, m, ok := p.contractOf(lib, st.Call)
-		if !ok {
-			continue
-		}
+	for st := range p.contracted(lib, isTarget, isRead) {
+		c, m, _ := p.contractOf(lib, st.Call)
 		said := []string{}
 		quantities, unbounded := []string{}, []string{}
 		rpc := canonicalCall(p.cat, st.Call)
@@ -259,14 +253,7 @@ func isRefusalStep(st *chain.Step) bool {
 }
 
 func (p *Plan) echoNumbers() {
-	for _, st := range p.Chain.Steps {
-		if chain.IsReadOnlyCall(st.Call) || isRefusalStep(st) {
-			continue
-		}
-		m, err := p.cat.Lookup(st.Call)
-		if err != nil {
-			continue
-		}
+	for st, m := range p.called(func(st *chain.Step) bool { return chain.IsReadOnlyCall(st.Call) || isRefusalStep(st) }) {
 		car := singleCarrier(m)
 		if car == nil {
 			continue
@@ -378,15 +365,9 @@ func (p *Plan) largeBatchLine(lib *Library, rules *effectRules, st *chain.Step, 
 }
 
 func (rules *effectRules) movesStock(rpc string) bool {
-	if rules.increase[rpc] != nil || rules.batch[rpc] != nil || rules.reserve[rpc] != nil {
-		return true
-	}
-	for _, sp := range rules.specs[rpc] {
-		if sp.form == "increase" || sp.form == "reserve" || sp.form == "batch" {
-			return true
-		}
-	}
-	return false
+	return rules.increase[rpc] != nil || rules.batch[rpc] != nil || rules.reserve[rpc] != nil || slices.ContainsFunc(rules.specs[rpc], func(sp effectSpec) bool {
+		return sp.form == "increase" || sp.form == "reserve" || sp.form == "batch"
+	})
 }
 
 func (p *Plan) largeItemFields(lib *Library, rules *effectRules, st *chain.Step, c *RPCContract, m *catalog.Method) []string {

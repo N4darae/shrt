@@ -4,6 +4,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"maps"
 	"os"
 	"slices"
 	"strings"
@@ -186,10 +187,7 @@ func observedResponse(s *runner.StepRecord) any {
 	if !ok {
 		return outcome
 	}
-	merged := make(map[string]any, len(obj)+1)
-	for k, v := range obj {
-		merged[k] = v
-	}
+	merged := maps.Clone(obj)
 	merged[chain.TransportPrefix] = outcome[chain.TransportPrefix]
 	return merged
 }
@@ -303,7 +301,7 @@ func printWhich(hits []chain.WhichChain, q chain.WhichQuery, target string, verb
 				fmt.Printf("    called %s\n", sit)
 			}
 			if m.ByReason != "" {
-				fmt.Printf("    %s\n", byReasonNote(m, q))
+				fmt.Printf("    matched by reason %s only: the step asserts no code, so it may expect a code other than %s that has the same reason\n", m.ByReason, q.Code)
 			}
 			if m.Observed == nil {
 				if m.Newest != nil {
@@ -349,10 +347,6 @@ func printWhich(hits []chain.WhichChain, q chain.WhichQuery, target string, verb
 		"writes do not change its verdict, and -keep writes would only add steps.")
 }
 
-func byReasonNote(m chain.WhichStep, q chain.WhichQuery) string {
-	return fmt.Sprintf("matched by reason %s only: the step asserts no code, so it may expect a code other than %s that has the same reason", m.ByReason, q.Code)
-}
-
 func whyNewestUnreached(n *chain.WhichNewest) string {
 	if n.StoppedAt != "" {
 		return fmt.Sprintf("run stopped at step %s (%s)", n.StoppedAt, n.StoppedStatus)
@@ -361,10 +355,7 @@ func whyNewestUnreached(n *chain.WhichNewest) string {
 }
 
 func whichSeenCell(o *chain.WhichEvidence) string {
-	status := o.Status
-	if status != runner.StatusPassed {
-		status = strings.ToUpper(status)
-	}
+	status := shownStatus(o.Status)
 	got := o.Code
 	switch {
 	case o.Asserted != "" && o.Path != o.Asserted && o.Code != "":
@@ -384,6 +375,13 @@ func whichSeenCell(o *chain.WhichEvidence) string {
 		return fmt.Sprintf("run %s got %s, step %s on %s", o.Run, got, status, strings.Join(paths, ", "))
 	}
 	return fmt.Sprintf("run %s got %s, step %s", o.Run, got, status)
+}
+
+func shownStatus(status string) string {
+	if status != runner.StatusPassed {
+		return strings.ToUpper(status)
+	}
+	return status
 }
 
 func runCount(n int) string {
@@ -462,12 +460,8 @@ func printObservedUnasserted(dir string, q chain.WhichQuery, seen []chain.WhichU
 	fmt.Printf("no chain in %s %s, but local run records observed it on %d step(s) that do not assert it:\n\n", dir, describeWhichQuery(q), len(seen))
 	baselined, bare := 0, 0
 	for i, s := range seen {
-		status := s.Status
-		if status != runner.StatusPassed {
-			status = strings.ToUpper(status)
-		}
 		fmt.Printf("%s  step %d %s  %s\n    run %s got %s at %s, step %s\n",
-			s.Chain, s.Index, s.Step, shortRPC(s.Call), s.Run, s.Code, s.Path, status)
+			s.Chain, s.Index, s.Step, shortRPC(s.Call), s.Run, s.Code, s.Path, shownStatus(s.Status))
 		if list := cover[i].siblings; len(list) > 0 {
 			fmt.Printf("    pins the same detail: %s, so a different refusal there fails shrt run\n", strings.Join(list, "; "))
 		}

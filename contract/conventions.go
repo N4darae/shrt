@@ -7,27 +7,10 @@ import (
 	"github.com/N4darae/shrt/namecase"
 )
 
-var notEntityIDQualifier = map[string]bool{
-	"request":     true,
-	"correlation": true,
-	"trace":       true,
-	"span":        true,
-	"session":     true,
-	"idempotency": true,
-}
+var notEntityIDQualifier = map[string]bool{"request": true, "correlation": true, "trace": true, "span": true, "session": true, "idempotency": true}
 
-var notEntityIDSubject = map[string]bool{
-	"token":    true,
-	"number":   true,
-	"type":     true,
-	"card":     true,
-	"document": true,
-	"kind":     true,
-	"format":   true,
-	"scheme":   true,
-	"prefix":   true,
-	"suffix":   true,
-}
+var notEntityIDSubject = map[string]bool{"token": true, "number": true, "type": true, "card": true, "document": true,
+	"kind": true, "format": true, "scheme": true, "prefix": true, "suffix": true}
 
 func isIDWord(w string) bool {
 	return w == "id" || w == "ids" || w == "uuid" || w == "uuids"

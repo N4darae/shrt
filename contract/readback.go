@@ -394,10 +394,7 @@ func (p *Plan) probeReadBack(lib *Library, isTarget func(*chain.Step) bool) {
 			subjects = append(subjects, st)
 		}
 	}
-	for _, st := range append([]*chain.Step{}, p.Chain.Steps...) {
-		if !isTarget(st) {
-			continue
-		}
+	for st := range p.targets(isTarget) {
 		if !chain.IsReadOnlyCall(st.Call) {
 			add(st)
 			continue

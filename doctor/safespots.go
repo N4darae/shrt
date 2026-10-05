@@ -149,12 +149,10 @@ func sameStepsAs(spotPath, spotsDir, chainsDir string, names []string) (string, 
 	if len(pool) == 1 {
 		return pool[0], nil
 	}
-	unspotted := []string{}
-	for _, n := range pool {
-		if _, err := os.Stat(filepath.Join(spotsDir, n+".json")); err != nil {
-			unspotted = append(unspotted, n)
-		}
-	}
+	unspotted := slices.DeleteFunc(slices.Clone(pool), func(n string) bool {
+		_, err := os.Stat(filepath.Join(spotsDir, n+".json"))
+		return err == nil
+	})
 	switch {
 	case len(unspotted) == 1:
 		return unspotted[0], nil
