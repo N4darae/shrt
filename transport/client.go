@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/http/httptrace"
 	neturl "net/url"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -113,16 +114,11 @@ func New(opts Options) *Client {
 		headers:  opts.Headers,
 		hostOver: opts.HostOverride,
 	}
-	c.chain = Wrap(c.send, opts.Middlewares...)
-	return c
-}
-
-func Wrap(base Handler, mws ...Middleware) Handler {
-	h := base
-	for i := len(mws) - 1; i >= 0; i-- {
-		h = mws[i](h)
+	c.chain = c.send
+	for _, mw := range slices.Backward(opts.Middlewares) {
+		c.chain = mw(c.chain)
 	}
-	return h
+	return c
 }
 
 func (c *Client) Do(ctx context.Context, call *Call) (*Result, error) {
