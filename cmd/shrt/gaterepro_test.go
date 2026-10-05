@@ -123,7 +123,7 @@ func TestAWriteAnsweredOtherThanStoredKeepsItsReadBackInTheRepro(t *testing.T) {
 	}
 	shop.confirmTotalBug = true
 	out, _ := shrtOut(t, "gate", "-repro", "-no-session-check", "-hollow-baseline", "")
-	want := "repro: shrt run .shrt/scratch/till-slice-confirm.yaml -keep-going (5 of 5 steps, reproduced 3/3, with read-back fetch)"
+	want := "repro: shrt run .shrt/scratch/till-slice-confirm.yaml -keep-going (5 of 5 steps, reproduced 3/3)"
 	if !strings.Contains(out, "answered order.total_minor=0, but FetchOrder read 500") || !strings.Contains(out, want) {
 		t.Fatalf("the repro of a write the read-back contradicts keeps that read:\n%s", out)
 	}
@@ -162,8 +162,8 @@ func TestTheGateListsAMaskedValueThatDifferedBeyondTagsIdsAndTimestamps(t *testi
 		diff.Change{Step: "list_all", Path: "things", Kind: diff.KindLength, Want: 5, Got: 9, Mask: "things"},
 	)}})
 	out := gateMasks(context.Background(), []*gateChain{{name: "cli-thing-flow", spot: true}, {name: "cli-unique"}})
-	if out != "masks: 1 masked values differ beyond run tags, ids and timestamps; 2 inside whole volatile lists, not compared: cli-thing-flow list_all:\n"+
-		"  cli-thing-flow make thing.total (600 -> 400)" {
+	if out != "masks: 1 masked value differs beyond run tags, ids, timestamps:\n"+
+		"  cli-thing-flow make thing.total (600 -> 400)\n  2 in whole volatile lists, not compared: cli-thing-flow list_all" {
 		t.Fatalf("a timestamp and a run tag are what a mask is for, a total is not, and an unscoped list is counted apart:\n%s", out)
 	}
 }
@@ -231,8 +231,8 @@ func TestGateReproSettlesAnUnclearPairOfWritesOnACounter(t *testing.T) {
 		want, without []string
 	}{
 		{"the batch stores only its first line: a read right after it tells, and the confirm took 2 as approved", true, false, []string{
-			"settled on the write stock_batch in restock: GetProduct read qty_on_hand=2 after it where it answered 5; confirm fell 2, as in the approved run\n",
-			"settled on the write stock_batch in restock-mid: get_mid read qty_on_hand=2 after it where it answered 5; confirm fell 2, as expected\n",
+			"settled on the write stock_batch in restock: GetProduct read qty_on_hand=2 after it where it answered 5\n",
+			"settled on the write stock_batch in restock-mid: get_mid read qty_on_hand=2 after it where it answered 5\n",
 		}, []string{"in restock-late"}},
 		{"the confirm takes one more: the batch stored what it answered", false, true, []string{
 			"settled on the write confirm in restock: GetProduct read qty_on_hand=5 after stock_batch, as it answered; confirm fell 3 (approved: fell 2)\n",

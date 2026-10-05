@@ -69,7 +69,7 @@ func runGateOut(t *testing.T, args ...string) (string, int) {
 func TestTheGateRunsEveryChainAndVerifiesEverySafeSpotWithAFreshTag(t *testing.T) {
 	f := gateWorkspace(t, nil)
 	out, code := runGateOut(t)
-	if code != 0 || !strings.Contains(out, "PASS cli-thing-flow") || !strings.Contains(out, "PASS cli-unique") ||
+	if code != 0 || !strings.Contains(out, "PASS cli-thing-flow, cli-unique\n") ||
 		!strings.Contains(out, "gate: PASS: 2 chains") {
 		t.Fatalf("a green gate prints PASS per chain and exits 0, got %d:\n%s", code, out)
 	}
@@ -217,7 +217,7 @@ func TestTheGateReadsWhatARealRunAndVerifyReport(t *testing.T) {
 	}
 	name = "gadget"
 	out, code = runGateOut(t)
-	if code != 1 || !strings.Contains(out, "FAIL cli-thing-flow  regression: fetch (Fetch) name want=widget got=gadget") ||
+	if code != 1 || !strings.Contains(out, "FAIL cli-thing-flow  fetch (Fetch) name want=widget got=gadget") ||
 		!strings.Contains(out, "got=gadget; suspect write create (Create)\n") ||
 		!strings.Contains(out, "  Create name: 1 step in 1 chain, e.g. cli-thing-flow fetch; write create\n") {
 		t.Fatalf("a changed name fails the gate and is grouped, got %d:\n%s", code, out)

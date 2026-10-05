@@ -75,7 +75,7 @@ func TestAWaitingChainThatOnlyReadsItsOwnTagRunsBesideTheOthers(t *testing.T) {
 		return out
 	}
 	out, errOut, code := gateWithStderr(t)
-	if code != 0 || !strings.HasPrefix(out, "PASS a-hold\nPASS cli-thing-flow\nPASS cli-unique\n") {
+	if code != 0 || !strings.HasPrefix(out, "PASS a-hold, cli-thing-flow, cli-unique\n") {
 		t.Fatalf("a waiting chain that writes nothing and reads only its own tag runs beside the queue, its line in its place, got %d:\n%s%s", code, out, errOut)
 	}
 	if !strings.Contains(errOut, "gate: a-hold waits 4m, started now, beside the other chains; -skip-waits leaves it out") {
@@ -161,7 +161,7 @@ func TestSkipWaitsLeavesOutAWaitingChainAndNeverCountsItAsPassing(t *testing.T) 
 		if exitCodeOf(err) != c.code || err == nil || !strings.HasSuffix(err.Error(), c.verdict) {
 			t.Errorf("%s: a skipped chain never counts as passing, got %d %v", c.name, exitCodeOf(err), err)
 		}
-		if !strings.HasPrefix(out, "SKIPPED a-hold  waits 4m; shrt gate a-hold runs it\n") || strings.Contains(out, "time:") {
+		if !strings.Contains(out, "\nSKIPPED a-hold  waits 4m; shrt gate a-hold runs it\n") || strings.Contains(out, "time:") {
 			t.Errorf("%s: the skipped chain keeps its place with its wait, and no time line counts it:\n%s", c.name, out)
 		}
 		if strings.Contains(errOut, "a-hold") {
@@ -190,7 +190,7 @@ func TestReproLeavesOutAWaitingChainUnlessKeptOrNamed(t *testing.T) {
 	if exitCodeOf(err) != 3 || err == nil || !strings.HasSuffix(err.Error(), "NO VERDICT: 2 of 3 chains passed, 1 skipped") || sent() {
 		t.Fatalf("-repro leaves a waiting chain out and never counts it as passing, got %d %v, calls %v:\n%s", exitCodeOf(err), err, f.calls, out)
 	}
-	if !strings.HasPrefix(out, "SKIPPED a-hold  waits 4m; shrt gate a-hold runs it\n") || strings.Contains(errOut, "a-hold") {
+	if !strings.Contains(out, "\nSKIPPED a-hold  waits 4m; shrt gate a-hold runs it\n") || strings.Contains(errOut, "a-hold") {
 		t.Errorf("the skipped chain keeps its place, and the start line names what left it out:\n%s%s", out, errOut)
 	}
 	for _, args := range [][]string{{"-repro", "-skip-waits=false"}, {"-repro", "a-hold", "cli-unique"}, nil} {

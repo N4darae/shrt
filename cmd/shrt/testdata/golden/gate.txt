@@ -1,26 +1,26 @@
 $ shrt gate -no-session-check -hollow-baseline   [exit 1]
-FAIL probe-orders  regression: cancel_confirmed (CancelOrder) status.code want=SUCCESS got=REJECTED; suspect the write
 PASS shop-product
+FAIL probe-orders  cancel_confirmed (CancelOrder) status.code want=SUCCESS got=REJECTED; suspect the write
 failures by suspect rpc:
   CancelOrder status.code: 1 step in 1 chain, e.g. probe-orders cancel_confirmed
 coverage: 11 rpcs without a contract: shrt contract init -all, then shrt contract plan -all -write
 shrt gate: FAIL: 1 of 2 chains failed; details: shrt verify <chain> -run latest
 
 $ shrt gate -v -no-session-check -hollow-baseline   [exit 1]
-FAIL probe-orders  regression: cancel_confirmed (CancelOrder) status.code want=SUCCESS got=REJECTED; suspect the write
+PASS shop-product
+FAIL probe-orders  cancel_confirmed (CancelOrder) status.code want=SUCCESS got=REJECTED; suspect the write
   cancel_confirmed sent {"id_order":"ord-0055"}
     [cancel_confirmed] changed status.code want=SUCCESS got=REJECTED
     [cancel_confirmed] changed status.message want="" got=StillConfirmed
-PASS shop-product
 failures by suspect rpc:
   CancelOrder status.code: 1 step in 1 chain, e.g. probe-orders cancel_confirmed
 coverage: 11 rpcs without a contract: shrt contract init -all, then shrt contract plan -all -write
 shrt gate: FAIL: 1 of 2 chains failed
 
 $ shrt gate -no-session-check -hollow-baseline   [exit 1]
-FAIL probe-orders  chain change: cancel_confirmed (CancelOrder) step want=shop.orders.v1.OrderService/CancelOrder got=<none>
-KEPT RED probe-orders-slice-cancel_confirmed  pinned DATE: cancel_confirmed CancelOrder status.code=REJECTED
 PASS shop-product
+FAIL probe-orders  chain change: cancel_confirmed (CancelOrder) step want=shop.orders.v1.OrderService/CancelOrder got=<none>
+  +1 kept red (DATE): cancel_confirmed CancelOrder status.code=REJECTED
 failures by suspect rpc:
   CancelOrder: 1 step in 1 chain, e.g. probe-orders cancel_confirmed step want=shop.orders.v1.OrderService/CancelOrder got=<none>
 coverage: 11 rpcs without a contract: shrt contract init -all, then shrt contract plan -all -write
@@ -40,7 +40,7 @@ failures by suspect rpc:
   CancelOrder product.qty_on_hand: 2 steps in 2 chains, e.g. cancels get_b; write cancel
 
 # an unclear row is labelled with the path its read changed, not its first write's own field
-FAIL guard  order_short (CreateOrder) order.total_minor want=160 got=130; suspect the write; also suspect write confirm (ConfirmOrder) at order.status
+FAIL guard  order_short (CreateOrder) order.total_minor want=160 got=130; suspect the write
 FAIL guard-slice  not as pinned: get_b (GetProduct) product.qty_on_hand pinned got=2, now got=1; suspect write confirm (ConfirmOrder)
 failures by suspect rpc:
   ConfirmOrder order.status, product.qty_on_hand: 3 steps in 2 chains, e.g. guard confirm
@@ -50,7 +50,6 @@ failures by suspect rpc:
 FAIL clerk  admin_read_back (GetProduct) product.qty_on_hand want=0 got=-3; suspect write clerk_confirm (ConfirmOrder) as clerk
 FAIL explore  a_after_two (GetProduct) product.qty_on_hand want=7 got=4; same fault as clerk (ConfirmOrder)
 FAIL customers  create_long (CreateCustomer) customer.name want=Customer t1-abcdefghijklmnopqrstuvwxyz got=Customer t1-a; suspect the write
-  also suspect write create_unicode (CreateCustomer) at transport code internal
 failures by suspect rpc:
   ConfirmOrder product.qty_on_hand: 3 steps in 2 chains, e.g. clerk admin_read_back; write clerk_confirm as clerk
   CreateCustomer customer.name, transport code: 2 steps in 1 chain, e.g. customers create_long
@@ -62,14 +61,13 @@ failures by suspect rpc:
 
 # an also suspect write names the field it changed
 FAIL guard-slice  not as pinned: get_b (GetProduct) product.qty_on_hand pinned got=2, now got=1; suspect write stock_batch (AddStockBatch)
-  also suspect write order_short (CreateOrder) at order.total_minor
 failures by suspect rpc:
   AddStockBatch product.qty_on_hand: 1 step in 1 chain, e.g. guard-slice get_b; write stock_batch
   CreateOrder order.total_minor: 1 step in 1 chain, e.g. guard-slice order_short
 
 # a role is named only when no other role fails the same way
 FAIL clerk-vs-admin  clerk_confirm (ConfirmOrder) order.status want=CONFIRMED got=PENDING; suspect the write
-FAIL lifecycle  confirm (ConfirmOrder) order.status want=CONFIRMED got=PENDING; same fault as clerk-vs-admin (ConfirmOrder)
+FAIL lifecycle  confirm fails as clerk_confirm in clerk-vs-admin
 FAIL clerk-stock  get_b (GetProduct) product.qty_on_hand want=2 got=1; suspect write clerk_confirm_big (ConfirmOrder) as clerk
 failures by suspect rpc:
   ConfirmOrder order.status: 2 steps in 2 chains, e.g. clerk-vs-admin clerk_confirm
@@ -82,7 +80,7 @@ failures by suspect rpc:
 
 # an unclear write or read no row settles is grouped under both, a decisive row apart
 FAIL customers  get (GetCustomer) customer.name want=Ann got=ann@example.test; unclear: write create (CreateCustomer) or the read
-FAIL lookup  get (GetCustomer) customer.name want=Ann got=ann@example.test; same fault as customers (CreateCustomer or GetCustomer)
+FAIL lookup  get fails as in customers
 FAIL orders  get_b (GetProduct) product.qty_on_hand want=2 got=1; suspect write confirm (ConfirmOrder)
 failures by suspect rpc:
   CreateCustomer or the read GetCustomer customer.name: 2 steps in 2 chains, e.g. customers get
@@ -90,11 +88,8 @@ failures by suspect rpc:
 
 # a changed read is filed under the write since the last read that matched, the other profile, or the read
 FAIL stock  get (GetProduct) product.qty_on_hand want=5 got=4; suspect write confirm_order (ConfirmOrder)
-  also suspect write create_product (CreateProduct) at product.created_at
-FAIL clerk  clerk_get (GetProduct) product.price_minor want=1250 got=0; suspect the read as clerk: answers product.price_minor unlike as default
-  also suspect write create_product (CreateProduct) at product.created_at
+FAIL clerk  clerk_get (GetProduct) product.price_minor want=1250 got=0; suspect the read as clerk
 FAIL orders  cancel_clerk (CancelOrder) status.code want=SUCCESS got=REJECTED; suspect the write as clerk
-  also suspect read fetch (FetchOrder): answers 1 order.lines where it answered 2
 failures by suspect rpc:
   CreateProduct product.created_at: 2 steps in 2 chains, e.g. stock create_product
   ConfirmOrder product.qty_on_hand: 1 step in 1 chain, e.g. stock get; write confirm_order
@@ -122,8 +117,8 @@ failures by suspect rpc:
   Make n: 1 step in 1 chain, e.g. one make (+2 knock-on steps)
 
 # the example carries its reason
-FAIL one  get (Get) thing.state want=DONE got=OPEN; suspect write w (Confirm): stores other than it answered
-FAIL two  get (Get) thing.state want=DONE got=OPEN; same fault as one (Confirm)
+FAIL one  get (Get) thing.state want=DONE got=OPEN; suspect write w (Confirm)
+FAIL two  get fails as in one
 failures by suspect rpc:
   Confirm thing.state: 2 steps in 2 chains, e.g. one get; write w: answered thing.state=DONE, but Get read OPEN
 
@@ -145,22 +140,22 @@ failures by suspect rpc:
 
 # a chain with a root the earlier chain lacks names that root, not the same fault
 FAIL replay  replay (CreateOrder) order.status want=CONFIRMED got=PENDING; suspect the write
-FAIL orders  replay_2 (CreateOrder) order.status want=CONFIRMED got=PENDING; suspect the write; also suspect write create (CreateOrder) at order.total_minor
+FAIL orders  replay_2 (CreateOrder) order.status want=CONFIRMED got=PENDING; suspect the write
 FAIL lists  create (CreateOrder) order.total_minor want=600 got=400; suspect the write
 failures by suspect rpc:
   CreateOrder order.status, order.total_minor: 4 steps in 3 chains, e.g. replay replay
 
 # a fault a chain with a safe spot shows is anchored there, though a chain without one shows it first
-FAIL explore  create (CreateOrder) order.total_minor want=600 got=400; same fault as orders (CreateOrder)
+FAIL explore  create fails as in orders
 FAIL orders  create (CreateOrder) order.total_minor want=600 got=400; suspect the write
-FAIL lists  create (CreateOrder) order.total_minor want=600 got=400; same fault as orders (CreateOrder)
+FAIL lists  create fails as in orders
 failures by suspect rpc:
   CreateOrder order.total_minor: 3 steps in 3 chains, e.g. orders create
 
 # a chain with a fault the anchor's line does not name names it, though the anchor has it too
-FAIL explore  create (CreateOrder) order.total_minor want=600 got=400; suspect the write; also suspect write confirm (ConfirmOrder) at order.status
-FAIL guard  create (CreateOrder) order.total_minor want=600 got=400; suspect the write; also suspect write stock_batch (AddStockBatch) at product.qty_on_hand
-FAIL orders  create (CreateOrder) order.total_minor want=600 got=400; same fault as explore (CreateOrder)
+FAIL explore  create (CreateOrder) order.total_minor want=600 got=400; suspect the write
+FAIL guard  create (CreateOrder) order.total_minor want=600 got=400; suspect the write
+FAIL orders  create fails as in explore
 failures by suspect rpc:
   CreateOrder order.total_minor: 3 steps in 3 chains, e.g. explore create
   ConfirmOrder order.status: 2 steps in 2 chains, e.g. explore confirm
@@ -168,11 +163,10 @@ failures by suspect rpc:
 
 # a slice failing as its parent folds into the parent's line
 FAIL orders  confirm (ConfirmOrder) order.status want=CONFIRMED got=PENDING; suspect the write; +1 slice fails the same: orders-slice-list
-  +2 kept-red slices fail the same, pins held (pinned 2026-09-28, 2026-09-30): list ListOrders orders, stock GetProduct product.qty_on_hand
+  +2 kept red fail too (2026-09-28, 2026-09-30): list ListOrders orders, stock GetProduct product.qty_on_hand
 FAIL orders-slice-other  pins held, new change: list (ListOrders) orders want=2 got=1
 FAIL orders-slice-more  pins held, new change: confirm (ConfirmOrder) order.status want=CONFIRMED got=PENDING; suspect the write
-  also suspect write create (CreateOrder) at order.total_minor
-FAIL orders-slice-pin  not as pinned: confirm (ConfirmOrder) order.status pinned got=CONFIRMED, now got=PENDING; same fault as orders (ConfirmOrder)
+FAIL orders-slice-pin  not as pinned: confirm (ConfirmOrder) order.status pinned got=CONFIRMED, now got=PENDING; same fault as orders
 failures by suspect rpc:
   ConfirmOrder order.status: 6 steps in 6 chains, e.g. orders confirm
   ListOrders orders: 1 step in 1 chain, e.g. orders-slice-other list orders want=2 got=1
@@ -180,7 +174,7 @@ failures by suspect rpc:
 
 # a failed first change leads over a drift
 FAIL a  add (Add) status.code want=REJECTED got=SUCCESS; suspect the write
-FAIL b  add_as_clerk (Add) status.code want=REJECTED got=SUCCESS; same fault as a (Add)
+FAIL b  add_as_clerk fails as add in a
 failures by suspect rpc:
   Add status.code: 3 steps in 2 chains, e.g. a add
   Create thing.name: 1 step in 1 chain, e.g. b create thing.name want=long name got=long
@@ -195,7 +189,7 @@ failures by suspect rpc:
 FAIL one  get (Get) thing.state want=a got=b; suspect write w (Move)
   w sent {"w":1}
     [get] thing.state want=a got=b
-FAIL two  get (Get) thing.state want=a got=b; same fault as one (Move)
+FAIL two  get fails as in one
   w sent {"w":1}
     [get] thing.state want=a got=b
 failures by suspect rpc:

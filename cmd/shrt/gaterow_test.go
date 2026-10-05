@@ -34,9 +34,9 @@ func TestAGateRowNamesItsReadOnce(t *testing.T) {
 	}
 	for name, want := range map[string]string{
 		"customers": "customer.name want=Customer t1 got=cust-t1@example.test; unclear: write create_customer (CreateCustomer) or the read",
-		"orders":    "fetch_order (FetchOrder) order.lines want=2 got=1; suspect the read: answers another set of order.lines",
+		"orders":    "fetch_order (FetchOrder) order.lines want=2 got=1; suspect the read",
 		"stock":     "get_product (GetProduct) product.qty_on_hand want=4 got=8; suspect write confirm_order (ConfirmOrder)",
-		"stored":    "get_thing (Get) thing.state want=DONE got=OPEN; suspect write w (Confirm): stores other than it answered",
+		"stored":    "get_thing (Get) thing.state want=DONE got=OPEN; suspect write w (Confirm)",
 		"confirms":  "confirm_order (ConfirmOrder) order.status want=CONFIRMED got=PENDING; suspect the write as clerk",
 	} {
 		if !strings.HasSuffix(rows[name], want) {
@@ -76,7 +76,7 @@ func TestATransportCodeIsNamedSoInTheGate(t *testing.T) {
 	}
 	chains := []*gateChain{{name: "customers", failed: true, items: []gateItem{own("create_long", "customer.name", "Customer t1-abc", "Customer t1-a"), own("create_unicode", "code", "<none>", "internal")}}}
 	settleGate(chains)
-	if want := "also suspect write create_unicode (CreateCustomer) at transport code internal"; !strings.HasSuffix(chains[0].line(nil), want) {
+	if want := "create_long (CreateCustomer) customer.name want=Customer t1-abc got=Customer t1-a; suspect the write"; !strings.HasSuffix(chains[0].line(nil), want) {
 		t.Errorf("want the line to end %q, got %q", want, chains[0].line(nil))
 	}
 	if summary := captureStdout(t, func() { printGateGroups(nil, chains, false) }); !strings.Contains(summary, "  CreateCustomer customer.name, transport code: 2 steps") {

@@ -315,10 +315,10 @@ func TestTheGateSettlesEachChainsLead(t *testing.T) {
 			}
 		}
 	}
-	if chains := settled(b); !strings.HasSuffix(chains[1].line(nil), "; suspect the write; also suspect write create (CreateOrder) at order.total_minor") {
+	if chains := settled(b); !strings.HasSuffix(chains[1].line(nil), "order.status want=CONFIRMED got=PENDING; suspect the write") {
 		t.Errorf("%s: got %q", b, chains[1].line(nil))
 	}
-	if chains := settled("a chain with a fault the anchor's line does not name names it, though the anchor has it too"); !strings.HasSuffix(chains[1].line(nil), "; suspect the write; also suspect write stock_batch (AddStockBatch) at product.qty_on_hand") {
+	if chains := settled("a chain with a fault the anchor's line does not name names it, though the anchor has it too"); !strings.HasSuffix(chains[1].line(nil), "order.total_minor want=600 got=400; suspect the write") {
 		t.Errorf("a fault the anchor's line leaves out is named on the line: got %q", chains[1].line(nil))
 	}
 	if out := renderGateCase(t, cases["a fault a chain with a safe spot shows is anchored there, though a chain without one shows it first"]); !strings.Contains(out, "  CreateOrder order.total_minor: 3 steps in 3 chains, e.g. orders create\n") {
@@ -328,7 +328,7 @@ func TestTheGateSettlesEachChainsLead(t *testing.T) {
 	if got := []string{chains[1].echoOf, chains[2].echoOf, chains[3].echoOf, chains[4].echoOf, chains[5].echoOf, chains[6].echoOf}; strings.Join(got, ",") != "orders,orders,orders,,," {
 		t.Errorf("a slice whose first change is its parent's folds, a kept-red one only when its pins held and its parent fails every way it does: %q", got)
 	}
-	if line := chains[0].line(nil); !strings.HasSuffix(line, "; +1 slice fails the same: orders-slice-list\n  +2 kept-red slices fail the same, pins held (pinned 2026-09-28, 2026-09-30): list ListOrders orders, stock GetProduct product.qty_on_hand") {
+	if line := chains[0].line(nil); !strings.HasSuffix(line, "; +1 slice fails the same: orders-slice-list\n  +2 kept red fail too (2026-09-28, 2026-09-30): list ListOrders orders, stock GetProduct product.qty_on_hand") {
 		t.Errorf("a kept-red slice folds as its first pin, saying every pin held and when it was pinned: %s", line)
 	}
 	chains = settled("a moved pin with no suspect does not point above")
@@ -337,7 +337,7 @@ func TestTheGateSettlesEachChainsLead(t *testing.T) {
 	}
 	for name, want := range map[string]string{
 		"an unclear row whose writes include an earlier row's suspect for the field is that fault, named with its rpc": "  CancelOrder product.qty_on_hand: 2 steps in 2 chains",
-		"-v shows the suspect's request and the same fault in a later chain":                                           "; same fault as one (Move)\n",
+		"-v shows the suspect's request and the same fault in a later chain":                                           "FAIL two  get fails as in one\n",
 	} {
 		if out := renderGateCase(t, cases[name]); !strings.Contains(out, want) {
 			t.Errorf("%s: want %q in:\n%s", name, want, out)

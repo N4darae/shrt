@@ -777,9 +777,10 @@ type gateChain struct {
 	slow      map[string]bool
 	echoOf    string
 	lead      *gateItem
-	also      *gateItem
 	sameAs    string
 	slices    []*gateChain
+	kept      []*gateChain
+	sameStep  string
 	shown     []string
 	waits     time.Duration
 	took      time.Duration
@@ -1056,8 +1057,21 @@ func runGate(ctx context.Context, args []string) error {
 		rep = gateRepro(ctx, e, chains, groups, *wait)
 		gapsBlock, gaps = gateGaps(ctx, e, chains, *wait)
 	}
+	var passed []string
+	plain := func(g *gateChain) bool {
+		return g.line(nil) == "PASS "+g.name && len(g.notes) == 0 && g.flakyNote() == ""
+	}
 	for _, g := range chains {
-		if g.echoOf != "" {
+		if g.echoOf == "" && plain(g) {
+			passed = append(passed, " "+g.name+",")
+		}
+	}
+	if len(passed) > 0 {
+		passed[len(passed)-1] = strings.TrimSuffix(passed[len(passed)-1], ",")
+		fmt.Println(fill("  ", "PASS", passed...))
+	}
+	for _, g := range chains {
+		if g.echoOf != "" || plain(g) {
 			continue
 		}
 		fmt.Println(g.line(rep.settled()))
@@ -1554,82 +1568,95 @@ func (g *gateChain) line(s settles) string {
 		return capText(head+"  "+g.pins, lineMax)
 	}
 	var parts []string
+	bare := true
 	if g.first != "" && verdict != "PASS" && verdict != "KEPT RED" {
-		head += "  "
+		head, bare = head+"  ", false
 		switch {
 		case g.failed && g.intermittentFirst() != "":
 			head += g.intermittentFirst() + ": "
-		case g.class != "" && g.failed:
+		case g.class != "" && g.class != "regression" && g.failed:
 			head += g.class + ": "
 		}
-		if it := g.lead; it != nil {
-			head += it.Step + it.callNote()
-			parts = append(parts, " "+it.headline())
-		} else {
+		why := g.why(s)
+		switch it := g.lead; {
+		case it == nil:
 			head += g.first
+		case g.sameStep == it.Step && strings.HasPrefix(why, sameFault):
+			head += it.Step + " fails as in " + g.sameAs
+		case g.sameStep != "" && strings.HasPrefix(why, sameFault):
+			head += it.Step + " fails as " + g.sameStep + " in " + g.sameAs
+		default:
+			head += it.Step + it.callNote()
+			parts = append(parts, " "+it.headline(), why)
 		}
-		parts = append(parts, g.why(s)...)
 	}
-	var same, held, days []string
+	var same []string
+	var held, kept pinList
 	for _, sl := range g.slices {
 		if !sl.pinsHeld {
 			same = append(same, sl.name)
 			continue
 		}
-		day, pins, dated := strings.Cut(strings.TrimPrefix(sl.pins, "pinned "), ": ")
-		if !dated {
-			day, pins = "", sl.pins
-		}
-		first, _, _ := strings.Cut(pins, ", ")
-		if held = append(held, first); day != "" && !slices.Contains(days, day) {
-			days = append(days, day)
-		}
+		held.add(sl.pins)
+	}
+	for _, sl := range g.kept {
+		kept.add(sl.pins)
 	}
 	if len(same) > 0 {
 		parts = append(parts, fmt.Sprintf("+%s %s the same: %s", plural(len(same), "slice"), pluralWord(len(same), "fails", "fail"), strings.Join(same, ", ")))
 	}
-	if len(held) > 0 {
-		on := ""
-		if len(days) > 0 {
-			on = " (pinned " + strings.Join(days, ", ") + ")"
-		}
-		parts = append(parts, fmt.Sprintf("+%s %s the same, pins held%s: %s", plural(len(held), "kept-red slice"), pluralWord(len(held), "fails", "fail"), on, chain.ListSome(held, pinsShown)))
+	if n := len(held.first); n > 0 {
+		parts = append(parts, fmt.Sprintf("+%d kept red %s too%s", n, pluralWord(n, "fails", "fail"), held))
+	}
+	if n := len(kept.first); n > 0 {
+		parts = append(parts, fmt.Sprintf("+%d kept red%s", n, kept))
+	}
+	if bare && len(parts) > 0 {
+		parts[0] = "  " + parts[0]
 	}
 	return fill("  ", head, parts...)
 }
 
-func (g *gateChain) why(s settles) []string {
-	if g.lead == nil {
-		return nil
+type pinList struct{ first, days []string }
+
+func (l *pinList) add(text string) {
+	day, pins, dated := strings.Cut(strings.TrimPrefix(text, "pinned "), ": ")
+	if !dated {
+		day, pins = "", text
 	}
-	it, out := *g.lead, []string{}
+	first, _, _ := strings.Cut(pins, ", ")
+	if l.first = append(l.first, first); day != "" && !slices.Contains(l.days, day) {
+		l.days = append(l.days, day)
+	}
+}
+
+func (l pinList) String() string {
+	on := ""
+	if len(l.days) > 0 {
+		on = " (" + strings.Join(l.days, ", ") + ")"
+	}
+	return on + ": " + chain.ListSome(l.first, pinsShown)
+}
+
+func (g *gateChain) why(s settles) string {
+	if g.lead == nil {
+		return ""
+	}
+	it := *g.lead
 	r, settled := s.of(g.name, it)
 	switch named := chain.RPCName(it.rpc()); {
 	case g.sameAs != "" && (!settled || chain.RPCName(r.RPC) == named):
 		if u := it.Reason; !settled && u.Kind == reasonUnclear && len(u.Or) == 0 && u.ReadRPC != "" {
 			named += " or " + chain.RPCName(u.ReadRPC)
 		}
-		out = append(out, sameFault+g.sameAs+" ("+named+")")
-	case settled:
-		out = append(out, r.in(said{row: true, head: &it})+", settled by -repro")
-	case it.Reason.Kind != "":
-		out = append(out, it.Reason.in(said{row: true, head: &it}))
-	}
-	if g.also == nil {
-		return out
-	}
-	other := *g.also
-	also, path := other.Reason.in(said{row: true}), ""
-	if r, ok := s.of(g.name, other); ok {
-		other.Reason, also = r, r.in(said{row: true})+", settled by -repro"
-	}
-	if path, _ = other.shown(); other.Reason.Kind == reasonWrite || len(other.Reason.Or) > 0 {
-		if path == transportCode {
-			path += " " + other.Got
+		if named == chain.RPCName(it.Call) {
+			return sameFault + g.sameAs
 		}
-		also += " at " + path
+		return sameFault + g.sameAs + " (" + named + ")"
+	case settled:
+		return r.in(said{row: true, head: &it}) + ", settled by -repro"
 	}
-	return append(out, "also "+also)
+	return it.Reason.in(said{row: true, head: &it})
 }
 
 var gateIndex = regexp.MustCompile(`\.\d+(\.|$)`)
@@ -1713,12 +1740,11 @@ func settleGate(chains []*gateChain) []string {
 				has[keyOf(x.name, named)] = true
 			}
 		}
-		other, more := lacks(g, has)
-		if first != "" && first != g.name && !more {
-			g.sameAs = first
-		}
-		if more {
-			g.also = &other
+		if _, more := lacks(g, has); first != "" && first != g.name && !more {
+			x := leads[byName[first]]
+			if g.sameAs = first; x.Path == it.Path && x.Want == it.Want && x.Got == it.Got && x.Pinned+it.Pinned == "" {
+				g.sameStep = x.Step
+			}
 		}
 		switch {
 		case it.Pinned != "":
@@ -1764,6 +1790,9 @@ func foldSlices(chains []*gateChain) {
 	}
 	for _, g := range chains {
 		i := strings.LastIndex(g.name, "-slice-")
+		if p := byName[g.name[:max(i, 0)]]; i > 0 && g.verdict == "KEPT RED" && g.pins != "" && p != nil && p.echoOf == "" {
+			g.echoOf, p.kept = p.name, append(p.kept, g)
+		}
 		if i < 0 || !g.failed || g.findingOnly() || g.class == "not as pinned" {
 			continue
 		}

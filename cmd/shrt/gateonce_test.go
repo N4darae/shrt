@@ -113,7 +113,7 @@ func TestTheGateLabelsEveryChainAGateFindingExplains(t *testing.T) {
 	for _, want := range []string{
 		"FINDING cli-thing-flow  intermittent: Create failed 1 of 5 calls\n",
 		"FINDING cli-unique  intermittent: Create failed 1 of 5 calls\n",
-		"FAIL cli-other  regression: list (Fetch) items want=3 got=2; suspect the read: answers another set of items\n",
+		"FAIL cli-other  list (Fetch) items want=3 got=2; suspect the read\n",
 		"  FINDING: intermittent failure at Create, below\n",
 		"FINDING: intermittent failure at Create (failed 3 of 15 calls) in 3 chains: a backend defect",
 	} {
@@ -137,7 +137,7 @@ func TestTheGateKeepsAListChangeAnotherChainShowsWithoutTheFinding(t *testing.T)
 		"run cli-unique":        {{code: 1, side: gateSidecar{Items: []gateItem{alone}}}},
 	})
 	out, _ := runGateOut(t)
-	if !strings.Contains(out, "FAIL cli-thing-flow  regression: list (List) items want=3 got=2") {
+	if !strings.Contains(out, "FAIL cli-thing-flow  list (List) items want=3 got=2; knock-on of write create (Create)\n") {
 		t.Errorf("a list another chain shows changed without the failing call stays a regression here:\n%s", out)
 	}
 }
@@ -154,7 +154,7 @@ func TestTheGateExplainsAChangeOnlyByAFailureInTheSameRecord(t *testing.T) {
 	})
 	writeFile(t, ".shrt/safespots/cli-unique.json", "{}\n")
 	out, _ := runGateOut(t)
-	if !strings.Contains(out, "FAIL cli-unique  regression: read (Fetch) qty want=5 got=4") {
+	if !strings.Contains(out, "FAIL cli-unique  read (Fetch) qty want=5 got=4; suspect read confirm (Fetch)\n") {
 		t.Errorf("a failure in the run does not explain the verify's change:\n%s", out)
 	}
 }

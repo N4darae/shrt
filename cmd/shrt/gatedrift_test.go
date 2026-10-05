@@ -17,8 +17,8 @@ func TestTheGateHeadlinesAChainByAFaultNoEarlierChainShowed(t *testing.T) {
 	})
 	out, code := runGateOut(t)
 	for _, want := range []string{
-		"FAIL cli-thing-flow  create (Create) thing.price want=250 got=249; suspect the write\n  also suspect read fetch_as_other (Fetch) as other: refused (DENIED), passes as default\n",
-		"FAIL cli-unique  pins held, new change: create (Create) thing.price want=250 got=249; same fault as cli-thing-flow (Create)\n",
+		"FAIL cli-thing-flow  create (Create) thing.price want=250 got=249; suspect the write\n",
+		"FAIL cli-unique  pins held, new change: create fails as in cli-thing-flow\n",
 		"  Create thing.price: 4 steps in 2 chains, e.g. cli-thing-flow create\n",
 		"  Fetch error.code: 1 step in 1 chain, e.g. cli-thing-flow fetch_as_other; as other: refused (DENIED), passes as default\n",
 	} {
@@ -85,7 +85,7 @@ func TestAFailedFirstChangeShownAboveStillLeadsOverADrift(t *testing.T) {
 	settleGate(chains)
 	for i, want := range []string{
 		"add (Add) status.code want=REJECTED got=SUCCESS; suspect the write",
-		"add_as_clerk (Add) status.code want=REJECTED got=SUCCESS; same fault as a (Add)",
+		"add_as_clerk fails as add in a",
 	} {
 		if got := strings.TrimPrefix(chains[i].line(nil), "FAIL "+chains[i].name+"  "); got != want {
 			t.Errorf("chain %s: got %q, want %q", chains[i].name, got, want)

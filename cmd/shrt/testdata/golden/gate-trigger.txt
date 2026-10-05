@@ -24,7 +24,7 @@ shrt gate: FAIL: 1 of 2 chains failed
 $ shrt gate -repro  [exit 1]
 PASS ends-in-one
 FAIL orders  order_1_2 (CreateOrder) order.total_minor want=750 got=500; suspect the write
-FAIL wide  order_2_3 (CreateOrder) order.total_minor want=1250 got=750; same fault as orders (CreateOrder)
+FAIL wide  order_2_3 (CreateOrder) order.total_minor want=1250 got=750; same fault as orders
 failures by suspect rpc:
   CreateOrder order.total_minor: 2 steps in 2 chains, e.g. wide order_2_3
     trigger: fails with lines of 2+ items and lines[last].qty above 1 (2 calls); passes otherwise: lines of 1 item (2 calls), lines[last].qty 1 (1 call)

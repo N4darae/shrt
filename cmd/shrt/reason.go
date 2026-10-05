@@ -126,7 +126,7 @@ func (r reason) in(s said) string {
 		return "knock-on of " + name(r.Step, r.RPC, "")
 	}
 	who, detail, rest := name(r.Step, r.RPC, r.Profile), r.detail(), ""
-	if r.Kind != reasonWrite {
+	if r.Kind != reasonWrite && (!s.row || s.head == nil) {
 		rest = ": " + detail
 	}
 	switch h := s.head; {
@@ -134,7 +134,7 @@ func (r reason) in(s said) string {
 		return who + detail
 	case group:
 		return who + ": " + detail
-	case h != nil && r.Kind == reasonStored && chain.EdgeQuoted(r.Want) == h.Want && chain.EdgeQuoted(r.Got) == h.Got && chain.RPCName(r.ReadRPC) == chain.RPCName(h.Call):
+	case h != nil && !s.row && r.Kind == reasonStored && chain.EdgeQuoted(r.Want) == h.Want && chain.EdgeQuoted(r.Got) == h.Got && chain.RPCName(r.ReadRPC) == chain.RPCName(h.Call):
 		return "suspect " + who + ": stores other than it answered"
 	case h != nil && r.Step == h.Step:
 		return "suspect the " + rw(r.RPC) + asText(r.Profile) + rest

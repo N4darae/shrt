@@ -282,7 +282,7 @@ func settleWrites(ctx context.Context, e *env, ref gateRef, wait time.Duration) 
 		sEarly, _ := approved.Step(early.Step)
 		sNow, sIDs, sOK := valueAt(sAt, path)
 		sw, okWant, _ = entityValue(sEarly, leaf, sIDs)
-		want, against, okWant = sNow, "in the approved run", okWant && sOK
+		want, against, okWant = sNow, "approved", okWant && sOK
 	}
 	if !ok || !okW || !okV || !okWant {
 		return fmt.Sprintf("not settled: the runs show no %s of that record to compare", leaf), ""
@@ -304,9 +304,12 @@ func settleWrites(ctx context.Context, e *env, ref gateRef, wait time.Duration) 
 	default:
 		text += ", as it answered"
 	}
+	if side == early.Step {
+		return verdict + ": " + text, side
+	}
 	moved := fmt.Sprintf("%s %s, as %s", late.Step, delta(v, now), against)
 	if !as {
-		moved = fmt.Sprintf("%s %s (%s: %s)", late.Step, delta(v, now), strings.TrimSuffix(strings.TrimPrefix(against, "in the "), " run"), delta(sw, want))
+		moved = fmt.Sprintf("%s %s (%s: %s)", late.Step, delta(v, now), against, delta(sw, want))
 	}
 	return fmt.Sprintf("%s: %s; %s", verdict, text, moved), side
 }
@@ -383,12 +386,12 @@ func reproRow(ctx context.Context, e *env, ref gateRef, fresh func(*chain.Chain,
 	}
 	if v := s.Verify; v.Outcome == sliceReproduced || v.Outcome == sliceIntermittent {
 		file = cmp.Or(s.Written, file)
-		flag, note := readBack(ctx, e, ref, file, vars)
+		flag := readBack(ctx, e, ref, file, vars)
 		kept := len(s.Kept)
 		if flag != "" {
 			kept++
 		}
-		return fmt.Sprintf("repro: shrt run %s%s (%d of %d steps, %s%s%s)", shownPath(file), flag, kept, s.Total, outcomeWord(v.Outcome), v.countLabel(), note), file
+		return fmt.Sprintf("repro: shrt run %s%s (%d of %d steps, %s%s)", shownPath(file), flag, kept, s.Total, outcomeWord(v.Outcome), v.countLabel()), file
 	}
 	v := s.Verify
 	if why = outcomeWord(v.Outcome); v.err() != nil {
@@ -419,16 +422,16 @@ func clearingRead(e *env, ref gateRef) string {
 	return rec.Steps[i].ID
 }
 
-func readBack(ctx context.Context, e *env, ref gateRef, file string, vars []string) (string, string) {
+func readBack(ctx context.Context, e *env, ref gateRef, file string, vars []string) string {
 	r, path := ref.it.Reason, ""
 	if r.Kind != reasonStored || r.Read == "" {
-		return "", ""
+		return ""
 	}
 	c, err := e.resolveChain(ref.chain)
 	slice, sErr := chain.LoadFile(file)
 	rec, rErr := e.store.LatestRun(ref.chain)
 	if err != nil || sErr != nil || rErr != nil {
-		return "", ""
+		return ""
 	}
 	read, ok := c.Step(r.Read)
 	if st, found := rec.Step(r.Read); ok && found && st != nil {
@@ -439,7 +442,7 @@ func readBack(ctx context.Context, e *env, ref gateRef, file string, vars []stri
 		})
 	}
 	if _, kept := slice.Step(r.Read); path == "" || kept {
-		return "", ""
+		return ""
 	}
 	field := gateIndex.ReplaceAllString(path, "[]$1")
 	orig, _ := os.ReadFile(file)
@@ -459,11 +462,11 @@ func readBack(ctx context.Context, e *env, ref gateRef, file string, vars []stri
 	if writeSliceFile(file, slice) == nil {
 		items := gateExec(ctx, args).side.Items
 		if slices.ContainsFunc(items, func(x gateItem) bool { return x.Step == r.Step }) && slices.ContainsFunc(items, func(x gateItem) bool { return x.Step == r.Read && x.Path == path }) {
-			return " -keep-going", ", with read-back " + r.Read
+			return " -keep-going"
 		}
 	}
 	_ = os.WriteFile(file, orig, 0o644)
-	return "", ""
+	return ""
 }
 
 type sliceOut struct {
@@ -527,7 +530,7 @@ func gateMasks(ctx context.Context, chains []*gateChain) string {
 	}
 	var more []string
 	if inLists > 0 {
-		more = append(more, fmt.Sprintf("%d inside whole volatile lists, not compared: %s", inLists, chain.ListSome(lists, 3)))
+		more = append(more, fmt.Sprintf("%d in whole volatile lists, not compared: %s", inLists, chain.ListSome(lists, 3)))
 	}
 	if len(unread) > 0 {
 		more = append(more, "no record for "+chain.ListSome(unread, 5))
@@ -538,7 +541,7 @@ func gateMasks(ctx context.Context, chains []*gateChain) string {
 	case read == 0:
 		return "masks: none read (no record for " + chain.ListSome(unread, 5) + ")"
 	case len(beyond) == 0:
-		return fill("  ", fmt.Sprintf("masks: none of %d masked values in %s differ beyond run tags, ids and timestamps", masked, plural(read, "chain")), more...)
+		return fill("  ", fmt.Sprintf("masks: none of %d masked values in %s differ beyond run tags, ids, timestamps", masked, plural(read, "chain")), more...)
 	}
 	shown := beyond[:min(len(beyond), 10)]
 	if n := len(beyond) - len(shown); n > 0 {
@@ -547,7 +550,7 @@ func gateMasks(ctx context.Context, chains []*gateChain) string {
 	for i := range shown {
 		shown[i] = capText(shown[i], lineMax-2)
 	}
-	return fill("  ", fmt.Sprintf("masks: %d masked values differ beyond run tags, ids and timestamps", len(beyond)), more...) + ":\n  " + strings.Join(shown, "\n  ")
+	return fmt.Sprintf("masks: %s %s beyond run tags, ids, timestamps:\n  ", plural(len(beyond), "masked value"), pluralWord(len(beyond), "differs", "differ")) + strings.Join(append(shown, more...), "\n  ")
 }
 
 func wholeList(c diff.Change) bool {

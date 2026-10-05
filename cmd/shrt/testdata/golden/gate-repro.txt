@@ -1,23 +1,22 @@
 # AddStock answers 5 and stores nothing: ListProducts reads 0 too, so the write
 $ shrt gate -repro  [exit 1]
-FAIL shelf  regression: get_product (GetProduct) product.qty_on_hand want=5 got=0; suspect write add_stock (AddStock), settled by -repro
+FAIL shelf  get_product (GetProduct) product.qty_on_hand want=5 got=0; suspect write add_stock (AddStock), settled by -repro
 failures by suspect rpc:
   AddStock product.qty_on_hand: 1 step in 1 chain, e.g. shelf get_product; write add_stock
     settled on the write add_stock: ListProducts read product.qty_on_hand=0, as GetProduct did, where it answered 5
     repro: shrt run .shrt/scratch/shelf-slice-get_product.yaml (3 of 3 steps, reproduced 3/3)
 coverage: 11 rpcs without a contract: shrt contract init -all, then shrt contract plan -all -write
-masks: none of 5 masked values in 1 chain differ beyond run tags, ids and timestamps
+masks: none of 5 masked values in 1 chain differ beyond run tags, ids, timestamps
 shrt gate: FAIL: 1 of 1 chain failed
 
 # GetProduct reads one short: ListProducts reads the 5 AddStock answered, so the read
 $ shrt gate -repro  [exit 1]
-FAIL shelf  regression: get_product (GetProduct) product.qty_on_hand want=5 got=4
-  suspect the read: answers product.qty_on_hand unlike what ListProducts returned, settled by -repro
+FAIL shelf  get_product (GetProduct) product.qty_on_hand want=5 got=4; suspect the read, settled by -repro
 failures by suspect rpc:
   GetProduct product.qty_on_hand: 1 step in 1 chain, e.g. shelf get_product; answers product.qty_on_hand unlike what ListProducts returned
     settled on the read get_product: ListProducts read product.qty_on_hand=5, as the write add_stock answered, where GetProduct read 4
     repro: shrt run .shrt/scratch/shelf-slice-get_product.yaml (3 of 3 steps, reproduced 3/3)
 coverage: 11 rpcs without a contract: shrt contract init -all, then shrt contract plan -all -write
-masks: none of 5 masked values in 1 chain differ beyond run tags, ids and timestamps
+masks: none of 5 masked values in 1 chain differ beyond run tags, ids, timestamps
 shrt gate: FAIL: 1 of 1 chain failed
 

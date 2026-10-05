@@ -1418,7 +1418,7 @@ func fill(indent, head string, parts ...string) string {
 		}
 		if len(cur)+len(sep)+len(p) > lineMax && strings.TrimSpace(cur) != "" {
 			b.WriteString(capText(cur, lineMax) + "\n")
-			cur = indent + p
+			cur = indent + strings.TrimLeft(p, " ")
 			continue
 		}
 		cur += sep + p
