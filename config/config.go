@@ -156,19 +156,8 @@ func (c *Config) NeverCommit() []string {
 }
 
 func DefaultRedact() []string {
-	return []string{
-		"**.*password",
-		"**.access_token",
-		"**.refresh_token",
-		"**.token",
-		"**.*secret",
-		"**.*pin",
-		"**.*pin_code",
-		"**.*passcode",
-		"**.*otp",
-		"**.api_key",
-		"**.authorization",
-	}
+	return []string{"**.*password", "**.access_token", "**.refresh_token", "**.token", "**.*secret", "**.*pin",
+		"**.*pin_code", "**.*passcode", "**.*otp", "**.api_key", "**.authorization"}
 }
 
 func Discover(start string) (string, error) {
