@@ -537,10 +537,10 @@ func TestLint(t *testing.T) {
 
 		{name: "a response field on a step refused without a token", c: one(&chain.Step{ID: "fetch_without_token", Call: "ThingService/Fetch", SkipAuth: true, Body: map[string]any{"id": "x"},
 			Expect: []chain.Expectation{{Path: "transport.code", Equals: "unauthenticated"}, {Path: "created_at", Equals: "2026"}}}),
-			pick: h("", chain.KindUnevaluableOnRefusal), n: 1, want: []hit{h(sevE, "", "no body exists to check created_at")}},
+			pick: h("", chain.KindUnevaluableOnRefusal), n: 1, want: []hit{h(sevE, "", "no body to check created_at")}},
 		{name: "a response field on a step refused with a bad token", c: one(&chain.Step{ID: "fetch_with_bad_token", Call: "ThingService/Fetch", Auth: "invalid", Body: map[string]any{"id": "x"},
 			Expect: []chain.Expectation{{Path: "transport.http_status", Equals: 401}, {Path: "name", NotEmpty: true}}}),
-			pick: h("", chain.KindUnevaluableOnRefusal), n: 1, want: []hit{h(sevE, "", "no body exists to check name")}},
+			pick: h("", chain.KindUnevaluableOnRefusal), n: 1, want: []hit{h(sevE, "", "no body to check name")}},
 		{name: "a response field on an answered step", c: one(fetch(map[string]any{"id": "x"}, chain.Expectation{Path: "transport.code", Equals: "ok"}, chain.Expectation{Path: "name", NotEmpty: true})),
 			pick: h("", chain.KindUnevaluableOnRefusal)},
 		{name: "transport paths need no descriptor field", c: thing(probe(chain.Expectation{Path: "transport.code", Equals: "unauthenticated"},

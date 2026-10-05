@@ -147,8 +147,8 @@ func ownStepProblem(stepID string, r Ref, knownExports map[string]bool) (string,
 	if section, _, _ := strings.Cut(r.Rest, "."); r.Kind == RefStep && section == "request" {
 		return "", true
 	}
-	return fmt.Sprintf("reads step %q's own response, comparing the answer with itself; read its request "+
-		"(${steps.%s.request.<field>}) or an earlier step", stepID, stepID), true
+	return fmt.Sprintf("reads this step's own response, so it compares the answer with itself; read "+
+		"${steps.%s.request.<field>} or an earlier step", stepID), true
 }
 
 type refIndex struct {
@@ -730,7 +730,7 @@ func lintExpectPaths(s *Step, m *catalog.Method) []Issue {
 			}
 			if kind, whole := scalarNotEqualOnObject(e, schema.Fields); whole {
 				issues = append(issues, Issue{Step: s.ID, Severity: SeverityWarn, Kind: KindUnfailable, Message: fmt.Sprintf(
-					"expect %s not_equal %q: %s is %s, never equal to one value, so it cannot fail; %s",
+					"expect %s not_equal %q: %s is %s, never one value, so it cannot fail; %s",
 					e.Path, stringify(e.NotEqual), e.Path, kind, objectNotEqualRemedy(e.Path)), Why: unfailableWhy})
 			}
 			if issue, bad := arithmeticIssue(s.ID, e, schema.Fields); bad {
@@ -801,7 +801,7 @@ func scalarNotEqualOnObject(e Expectation, fields []*catalog.Field) (string, boo
 		return "a list", true
 	case (f.Kind == "message" || f.Kind == "group") && f.MapKey == "" &&
 		(f.Message == "google.protobuf.Struct" || !strings.HasPrefix(f.Message, "google.protobuf.")):
-		return "a message (" + f.Message + "), an object", true
+		return "a message (" + f.Message[strings.LastIndex(f.Message, ".")+1:] + ")", true
 	}
 	return "", false
 }
@@ -838,7 +838,7 @@ func arithmeticIssue(stepID string, e Expectation, fields []*catalog.Field) (Iss
 			Step:     stepID,
 			Severity: SeverityWarn,
 			Kind:     KindArithmetic,
-			Message: fmt.Sprintf("expect %s %s: %q does no arithmetic, so this %s %s; assert a value you work out (equals: 5, or a var)",
+			Message: fmt.Sprintf("expect %s %s: %q does no arithmetic, so this %s %s; assert a value you work out",
 				e.Path, rule.name, text, f.Kind, outcome),
 			Why: "references are pasted into the text as they resolve, so the number is compared with text such as \"0+5\"",
 		}, true
@@ -1174,7 +1174,7 @@ func FoldEnvelopeOnly(issues []Issue) []Issue {
 		}
 		if len(steps) > 0 {
 			i.Step, i.Message = strings.Join(steps, ", "), fmt.Sprintf("%d steps assert only the verdict, though their "+
-				"contracts declare what each response carries ('chain lint -v' names the fields)", len(steps))
+				"contracts declare response fields ('chain lint -v' names them)", len(steps))
 			out, steps = append(out, i), nil
 		}
 	}
@@ -1261,7 +1261,7 @@ func lintUnevaluableOnRefusal(s *Step) []Issue {
 			path = "the whole response"
 		}
 		issues = append(issues, Issue{Step: s.ID, Severity: SeverityError, Kind: KindUnevaluableOnRefusal, Message: fmt.Sprintf(
-			"expects %s%s, so no body exists to check %s; assert only transport.*, or move it to an answered step",
+			"expects %s%s, so it has no body to check %s; assert only transport.* here",
 			refusal, why, path), Why: "the step fails every time it is refused as expected"})
 	}
 	return issues
