@@ -164,9 +164,8 @@ exec shrt gate
    → shrt contract show <rpc>                 what the contract knows
    → shrt contract plan <rpc> -write          let the contract compose the chain
    → edit .shrt/chains/<name>.yaml            fill ONLY the test data
-   → shrt chain lint <name>                   shape, refs, required fields
-   → shrt run <name> -dry-run                 resolve everything, send nothing
-   → shrt run <name>                          the receipt
+   → shrt run <name>                          the receipt; chain errors refused, all at once
+   → shrt chain lint -strict <name>           what the gate holds it to
    → shrt chain hollow                        did any read pass and find nothing?
    → shrt confirm <name> -note "..."          propose; show the user, ask
    → (user says yes) shrt confirm <name> -approve -by <their email>

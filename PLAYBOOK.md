@@ -203,10 +203,8 @@ shrt contract lint
 ## 8. Run, hand off, verify
 
 ```bash
-shrt chain lint <name>          # fix every error before sending traffic
-shrt chain lint -strict <name>  # and every assertion-quality warning, before it gates
-shrt run <name> -dry-run        # resolve and validate, send nothing
-shrt run <name>
+shrt run <name>                 # refuses every chain error at once, sending nothing
+shrt chain lint -strict <name>  # every assertion-quality warning, before it gates
 ```
 
 Read a step's `error` as a fixture problem first (PITFALLS §2).
@@ -314,13 +312,12 @@ shrt chain which -rpc PayInvoice -code 1204 -json
 ```bash
 shrt chain slice billing -step pay_invoice_twice
 shrt chain slice billing -step pay_invoice_twice -write probe   # .shrt/scratch/probe.yaml
-shrt chain lint .shrt/scratch/probe.yaml
 shrt chain slice billing -step pay_invoice_twice -write probe -verify -run latest
 ```
 
 1. **Read the reason on every kept step.** It keeps the producers of what kept steps reference, contract prerequisites, earlier writes on the same entities, and earlier writes of a unique value the target sends again. A kept step that failed in the source run loses its expectations, unless it is a write failing on the target's field. That one stays, so run the slice with `-keep-going` to reach the target.
 2. **Read `WARNING possible under-inclusion`** before trusting the size. A dropped write can be state the target needed. Put steps back with `-keep id[,id]`; `-keep writes,<id>` keeps every earlier write too.
-3. **`-write [name]`, then lint it by path.** Without a path it lands in `.shrt/scratch/`, which no gate, lint or hollow sweep reads; run it by path. A value with a slash is a path. A slice never overwrites the chain it drops steps from.
+3. **`-write [name]`.** Without a path it lands in `.shrt/scratch/`, which no gate, lint or hollow sweep reads; run it by path. A value with a slash is a path. A slice never overwrites the chain it drops steps from.
 4. **`-verify` makes the slice a receipt.** It runs the slice 3 times and compares the target's verdict with the source run's: envelope code, reason, transport refusal, and each expectation's want and got. Pass a fresh `-var name=<fresh>` when it asks.
 5. **`-minimize`** first drops each step no kept step reads, when a run without it fails the same way.
 
