@@ -8,6 +8,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -1092,7 +1093,7 @@ func runGate(ctx context.Context, args []string) error {
 	for _, n := range notes {
 		fmt.Println(n)
 	}
-	printGroups(groups, *verbose, rep)
+	printGroups(groups, *verbose, rep, outsideRows(chains))
 	for _, f := range findings {
 		fmt.Println(f)
 	}
@@ -1969,11 +1970,8 @@ func gateGroups(e *env, chains []*gateChain) []*gateGroup {
 				groups[key] = gr
 				order = append(order, gr)
 			}
-			if f, same := it.field(); f != "" && !gr.seen[g.name+" "+it.Step] {
-				gr.seen[g.name+" "+it.Step] = true
-				if !gr.seen[same] {
-					gr.seen[same], gr.fields = true, append(gr.fields, f)
-				}
+			if f, same := it.field(); f != "" && !gr.seen[same] {
+				gr.seen[same], gr.fields = true, append(gr.fields, f)
 			}
 			if it.Reason.Kind == reasonKnockOn {
 				gr.knock[g.name+" "+it.Step] = true
@@ -2000,11 +1998,30 @@ func gateGroups(e *env, chains []*gateChain) []*gateGroup {
 	return order
 }
 
-func printGroups(groups []*gateGroup, verbose bool, rep *reproOut) {
+func outsideRows(chains []*gateChain) []string {
+	var out []string
+	for _, g := range chains {
+		if g.failed && !slices.ContainsFunc(g.items, func(it gateItem) bool { return !it.Passes }) {
+			out = append(out, g.name)
+		}
+	}
+	return out
+}
+
+func printGroups(groups []*gateGroup, verbose bool, rep *reproOut, outside []string) {
 	if len(groups) == 0 {
 		return
 	}
-	fmt.Println("failures by suspect rpc:")
+	steps := map[string]bool{}
+	for _, gr := range groups {
+		maps.Copy(steps, gr.steps)
+		maps.Copy(steps, gr.knock)
+	}
+	cover := "all " + plural(len(steps), "failing step")
+	if len(outside) > 0 {
+		cover = plural(len(steps), "failing step") + "; not in a row: " + chain.ListSome(outside, 3)
+	}
+	fmt.Printf("failures by suspect rpc (%s):\n", cover)
 	for _, gr := range groups {
 		fmt.Println(gr.lines(verbose, rep))
 	}

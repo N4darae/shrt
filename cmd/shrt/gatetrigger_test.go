@@ -438,7 +438,8 @@ func TestGateReproSettlesEachUnclearWriteAndReadPairInARow(t *testing.T) {
 	writeFile(t, ".shrt/chains/shelf-list.yaml", listed[:strings.Index(listed, "    - id: get_product")]+list)
 	writeFile(t, ".shrt/chains/shelf-both.yaml", strings.Replace(shelfChain, "name: shelf", "name: shelf-both", 1)+list)
 	out, code := shrtOut(t, "gate", "-repro", "-no-session-check", "-hollow-baseline", "")
-	_, block, _ := strings.Cut(out, "failures by suspect rpc:\n")
+	_, block, _ := strings.Cut(out, "failing step")
+	_, block, _ = strings.Cut(block, "\n")
 	if code != 1 || strings.Count(block, "settled on the write add_stock") != 2 || !strings.Contains(block, "ListProducts read product.qty_on_hand=0") ||
 		!strings.Contains(block, "GetProduct read products[].qty_on_hand=0") {
 		t.Errorf("one row holds the write against GetProduct and against ListProducts, and -repro settles both pairs, got %d:\n%s", code, out)

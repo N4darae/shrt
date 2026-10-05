@@ -11,7 +11,7 @@ A safe spot is a run the user approved; replays are diffed against it.
 
 ## Read the gate
 
-- Each row under `failures by suspect rpc:` is one fault, with its `trigger:` and a verified `repro:`. Report them: they are the answer.
+- Each row under `failures by suspect rpc` is one fault, with its `trigger:` and a verified `repro:`. Report them: they are the answer.
 - `KEPT RED` lines and `+N kept red (<date>)` folds are known defects. Every `FAIL` is new.
 - A `gaps:` row is a fault in a state no chain covers.
 - Re-run a repro with its printed `shrt run <path>`.

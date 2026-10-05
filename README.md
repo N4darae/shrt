@@ -40,7 +40,7 @@ The end of a `FAIL` line:
 
 ### Summary parts
 
-- `failures by suspect rpc:`: one row per suspect rpc and field, with an example step. The answer.
+- `failures by suspect rpc (all N failing steps):`: one row per suspect rpc and the fields it changed, with an example step. Every failing step is in a row, or named after `not in a row:`. The answer.
 Each row holds its own lines: the counter move, `settled ...`, `trigger:` and `repro:`.
 
 - `trigger:`: what the failing calls' requests have that the passing calls' lack. Take it as the pattern. Where it rested on few calls, `-repro` has already sent the contrasting calls; the line shows the result and ends `[firmed by -repro]`.

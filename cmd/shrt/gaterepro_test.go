@@ -249,7 +249,8 @@ func TestGateReproSettlesAnUnclearPairOfWritesOnACounter(t *testing.T) {
 	} {
 		shop.batchFirstLineBug, shop.confirmExtraUnit = c.batch, c.extra
 		out, code := shrtOut(t, "gate", "-repro", "-no-session-check", "-hollow-baseline", "")
-		_, block, _ := strings.Cut(out, "failures by suspect rpc:\n")
+		_, block, _ := strings.Cut(out, "failing step")
+		_, block, _ = strings.Cut(block, "\n")
 		for _, want := range c.want {
 			if code != 1 || !strings.Contains(block, want) {
 				t.Errorf("%s: want %q, got %d:\n%s", c.name, want, code, out)

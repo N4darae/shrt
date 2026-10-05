@@ -22,7 +22,8 @@ func firmGate(t *testing.T, shop *fakeShop, steps string, bug func()) string {
 }
 
 func reproBlock(out string) string {
-	_, block, _ := strings.Cut(out, "failures by suspect rpc:\n")
+	_, block, _ := strings.Cut(out, "failing step")
+	_, block, _ = strings.Cut(block, "\n")
 	return block
 }
 

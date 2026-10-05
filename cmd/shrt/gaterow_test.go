@@ -96,6 +96,6 @@ func TestATransportCodeIsNamedSoInTheGate(t *testing.T) {
 
 func printGateGroups(e *env, chains []*gateChain, verbose bool) []*gateGroup {
 	groups := gateGroups(e, chains)
-	printGroups(groups, verbose, nil)
+	printGroups(groups, verbose, nil, nil)
 	return groups
 }
