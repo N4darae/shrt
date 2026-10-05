@@ -947,7 +947,7 @@ func (p *Plan) noteRequirements() {
 		}
 		if facts := DeclaredFacts(pc.contract); len(facts) > 0 && AssertsOnlyVerdict(pc.step) {
 			if p.noun == "" {
-				p.note("step %s %s", id, EnvelopeOnlyMessage(pc.step.Call, facts))
+				p.note("step %s %s. %s", id, envelopeOnlyShort(pc.step.Call, facts), envelopeOnlyWhy)
 			} else {
 				verdictOnly = append(verdictOnly, id)
 				if rpc := shortRPC(pc.step.Call); !slices.Contains(rpcs, rpc) {

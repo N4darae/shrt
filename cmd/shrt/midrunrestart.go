@@ -184,11 +184,6 @@ func unansweredCall(st *runner.StepRecord) bool {
 		st.Status == runner.StatusError && st.Request != nil && st.HTTPStatus == 0 && len(st.Response) == 0 && !st.Drift
 }
 
-func notFound(text string) bool {
-	folded := strings.NewReplacer("_", "", " ", "", "-", "").Replace(strings.ToLower(text))
-	return strings.Contains(folded, "notfound")
-}
-
 type freshRefusal struct {
 	step   *runner.StepRecord
 	index  int

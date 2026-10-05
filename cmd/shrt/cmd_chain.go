@@ -586,11 +586,6 @@ func (e *env) resolveChainNamed(ref, name string) (*chain.Chain, error) {
 	return e.resolveChain(name)
 }
 
-func (e *env) chainName(ref string) (string, error) {
-	name, _, err := e.namedChain(ref)
-	return name, err
-}
-
 func (e *env) namedChain(ref string) (string, *chain.Chain, error) {
 	if strings.ContainsAny(ref, "/\\") || strings.HasSuffix(ref, ".yaml") || strings.HasSuffix(ref, ".yml") {
 		return ref, nil, nil

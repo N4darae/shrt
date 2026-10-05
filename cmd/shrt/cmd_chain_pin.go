@@ -119,7 +119,7 @@ func noteMovedSteps(path, line string) error {
 
 func pinRound(ctx context.Context, e *env, c *chain.Chain, ref string, round int) (string, string, error) {
 	rec, _ := newestRecordReaching(e, c.Name, "", "", false)
-	if rec == nil || rec.ChainDigest != c.Digest() || !ranEveryStep(c, rec) {
+	if rec == nil || rec.ChainDigest != c.Digest() || slices.ContainsFunc(c.Steps, func(s *chain.Step) bool { _, ok := rec.Step(s.ID); return !ok }) {
 		out, runErr := quietly(func() error { return runRun(ctx, []string{ref, "-keep-going", "-quiet"}) })
 		next, _ := newestRecordReaching(e, c.Name, "", "", false)
 		if next == nil || rec != nil && next.RunID == rec.RunID {
@@ -247,10 +247,6 @@ func failureShape(rec *runner.Record, id string) string {
 		}
 	}
 	return strings.Join(paths, "\x00")
-}
-
-func ranEveryStep(c *chain.Chain, rec *runner.Record) bool {
-	return !slices.ContainsFunc(c.Steps, func(s *chain.Step) bool { _, ok := rec.Step(s.ID); return !ok })
 }
 
 func expectationFailures(rec *runner.Record) []string {

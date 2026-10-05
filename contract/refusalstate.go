@@ -386,7 +386,7 @@ func (p *Plan) guardUnchanged(lib *Library, refused []*chain.Step, label string)
 			}
 		}
 	}
-	if len(entities) == 0 && p.allRefusedCreates(refused) {
+	if len(entities) == 0 && len(refused) > 0 && !slices.ContainsFunc(refused, func(st *chain.Step) bool { return !p.refusedCreate(st) }) {
 		p.noteRefusedCreate(refused[0])
 		return refused
 	}

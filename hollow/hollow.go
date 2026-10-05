@@ -80,7 +80,7 @@ func IsMetadataAssertion(path, rule string) bool {
 
 func assertsOnlyEnvelope(rec *runner.StepRecord) bool {
 	for _, e := range rec.Expect {
-		if AssertsAbsence(e) || IsVacuousResult(e) {
+		if AssertsAbsence(e) || e.Rule == "not_equal" && chain.VacuousNotEqualResult(e.Path, e.Want, e.Got) {
 			continue
 		}
 		if !IsMetadataAssertion(e.Path, e.Rule) || pinsEnvelopeDetail(e) {
@@ -99,10 +99,6 @@ func pinsEnvelopeDetail(e chain.ExpectResult) bool {
 		return false
 	}
 	return slices.Contains(chain.CodeFields(), segs[len(segs)-1])
-}
-
-func AssertsAbsenceExpectation(e chain.Expectation) bool {
-	return e.Exists != nil && !discriminatesEmptiness(e.Path, *e.Exists)
 }
 
 func AssertsAbsence(e chain.ExpectResult) bool {
@@ -152,8 +148,8 @@ func DataAsserted(chains []*chain.Chain) map[string]bool {
 				if envelopeRef {
 					continue
 				}
-				if declaresRefusalExpectation(e) || chain.TautologyReason(e) == "" && !AssertsAbsenceExpectation(e) &&
-					!isVacuousExpectation(e) && !IsMetadataAssertion(e.Path, expectationRule(e)) {
+				if declaresRefusalExpectation(e) || chain.TautologyReason(e) == "" && (e.Exists == nil || discriminatesEmptiness(e.Path, *e.Exists)) &&
+					(e.NotEqual == nil || !chain.VacuousNotEqual(e.Path, e.NotEqual)) && !IsMetadataAssertion(e.Path, expectationRule(e)) {
 					out[stepKey(c.Name, s.ID)] = true
 					break
 				}
@@ -406,14 +402,6 @@ func expectationRule(e chain.Expectation) string {
 		return "includes"
 	}
 	return ""
-}
-
-func IsVacuousResult(e chain.ExpectResult) bool {
-	return e.Rule == "not_equal" && chain.VacuousNotEqualResult(e.Path, e.Want, e.Got)
-}
-
-func isVacuousExpectation(e chain.Expectation) bool {
-	return e.NotEqual != nil && chain.VacuousNotEqual(e.Path, e.NotEqual)
 }
 
 func recordSource(path string) string {

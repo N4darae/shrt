@@ -104,10 +104,8 @@ func repeatedUnanswered(e *env, rec *runner.Record, step string) *unansweredRepe
 }
 
 func previousRunAttempting(e *env, rec *runner.Record, step string) *runner.Record {
-	return previousRun(e, rec, true, func(prev *runner.Record) bool { return attempted(prev, step) })
-}
-
-func attempted(rec *runner.Record, step string) bool {
-	st, ok := rec.Step(step)
-	return ok && st.Status != runner.StatusSkipped && (st.HTTPStatus != 0 || len(st.Response) > 0 || unansweredKind(st) != "")
+	return previousRun(e, rec, true, func(prev *runner.Record) bool {
+		st, ok := prev.Step(step)
+		return ok && st.Status != runner.StatusSkipped && (st.HTTPStatus != 0 || len(st.Response) > 0 || unansweredKind(st) != "")
+	})
 }

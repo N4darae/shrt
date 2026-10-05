@@ -58,10 +58,6 @@ func (b blockedRead) line(sourceRun string) string {
 		head, b.eval.Path, b.eval.Rule, outcome, quoted(b.eval.Want), quoted(b.eval.Got))
 }
 
-func evaluatedBlocked(blocked []blockedRead) bool {
-	return len(blocked) > 0 && !slices.ContainsFunc(blocked, func(b blockedRead) bool { return b.eval == nil })
-}
-
 func withoutBlocked(source, replay chain.Verdict, blocked []blockedRead) chain.Verdict {
 	out := replay
 	out.Expect = append([]chain.ExpectResult{}, replay.Expect...)

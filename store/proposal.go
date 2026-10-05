@@ -357,7 +357,7 @@ var indexPattern = regexp.MustCompile(`\.[0-9]+`)
 func beyondVerdict(st *runner.StepRecord, envelope string) []string {
 	var out []string
 	for _, e := range st.Expect {
-		if !atEnvelope(e.Path, envelope) && !chain.IsTransportPath(e.Path) {
+		if e.Path != envelope && streamedPrefix.ReplaceAllString(e.Path, "") != envelope && !chain.IsTransportPath(e.Path) {
 			out = append(out, e.Path)
 		}
 	}
@@ -430,10 +430,6 @@ func answerKind(st *runner.StepRecord, envelope string) string {
 }
 
 var streamedPrefix = regexp.MustCompile(`^` + catalog.StreamMessages + `\.\d+\.`)
-
-func atEnvelope(path, envelope string) bool {
-	return path == envelope || streamedPrefix.MatchString(path) && streamedPrefix.ReplaceAllString(path, "") == envelope
-}
 
 func proposalHeader(p *Proposal, rec *runner.Record) string {
 	var b strings.Builder

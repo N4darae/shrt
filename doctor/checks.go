@@ -505,7 +505,8 @@ func checkEnvelopePath(cat *catalog.Catalog, cfg *config.Config, r *Report) {
 	configured := strings.TrimSpace(cfg.Conventions.EnvelopePath)
 	found := catalog.DetectEnvelope(cat)
 	if configured != "" {
-		if declaredSomewhere(cat, configured) {
+		segs := chain.SplitPath(configured)
+		if slices.ContainsFunc(cat.Methods(), func(m *catalog.Method) bool { return catalog.HasPath(catalog.DescribeMessage(m.Output()).Fields, segs) }) {
 			r.add(CheckConventions, LevelOK,
 				fmt.Sprintf("envelope_path %q is a field of at least one response message", configured), "")
 			return
@@ -583,11 +584,6 @@ func effectiveEnvelopePath(cat *catalog.Catalog, cfg *config.Config) string {
 		return found[0].Path
 	}
 	return chain.DefaultEnvelopePath
-}
-
-func declaredSomewhere(cat *catalog.Catalog, path string) bool {
-	segs := chain.SplitPath(path)
-	return slices.ContainsFunc(cat.Methods(), func(m *catalog.Method) bool { return catalog.HasPath(catalog.DescribeMessage(m.Output()).Fields, segs) })
 }
 
 func DescriptorMatchesRebuild(ctx context.Context, cfg *config.Config) (bool, error) {

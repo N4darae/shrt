@@ -1,6 +1,7 @@
 package contract
 
 import (
+	"cmp"
 	"fmt"
 	"regexp"
 	"strings"
@@ -199,7 +200,7 @@ func (p *Plan) addShapeProbes(lib *Library, st *chain.Step, m *catalog.Method, f
 		probe := p.probeCopy(lib, st, chain.PathLeaf(sc.field)+"_"+sc.kind)
 		setBodyPath(probe.Body, sc.path, sc.value)
 		probe.Expect = append([]chain.Expectation{}, expect...)
-		probe.Description = fmt.Sprintf("%s %s: a malformed request, answered %s before any business rule runs.", sc.path, shapeWords(sc.kind), f.Label())
+		probe.Description = fmt.Sprintf("%s %s: a malformed request, answered %s before any business rule runs.", sc.path, cmp.Or(map[string]string{"blank": "only whitespace", "no_at": "without an @"}[sc.kind], sc.kind), f.Label())
 		p.addShape(lib, st, probe)
 		ids = append(ids, probe.ID)
 	}
@@ -214,11 +215,4 @@ func (p *Plan) addShape(lib *Library, st *chain.Step, probe *chain.Step) {
 		return
 	}
 	p.Chain.Steps = append(p.Chain.Steps, p.guardUnchanged(lib, []*chain.Step{probe}, probe.ID)...)
-}
-
-func shapeWords(kind string) string {
-	if words, ok := map[string]string{"blank": "only whitespace", "no_at": "without an @"}[kind]; ok {
-		return words
-	}
-	return kind
 }

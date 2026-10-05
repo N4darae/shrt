@@ -71,7 +71,7 @@ func runConfirm(ctx context.Context, args []string) error {
 	if len(rest) != 1 {
 		return errors.New(confirmUsage)
 	}
-	name, err := e.chainName(rest[0])
+	name, _, err := e.namedChain(rest[0])
 	if err != nil && !*reject {
 		return err
 	}
