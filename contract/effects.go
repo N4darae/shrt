@@ -800,12 +800,10 @@ func (md *effectModel) replaceEcho(st *chain.Step, path string, v int64) bool {
 }
 
 func (md *effectModel) echoes(st *chain.Step) bool {
-	for _, e := range st.Expect {
-		if text, _ := e.Equals.(string); strings.Contains(text, "${"+md.at.ID+".") {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(st.Expect, func(e chain.Expectation) bool {
+		text, _ := e.Equals.(string)
+		return strings.Contains(text, "${"+md.at.ID+".")
+	})
 }
 
 func (md *effectModel) set(st *chain.Step, path string, v int64) bool {
@@ -843,15 +841,9 @@ func (p *Plan) startsEmpty(lib *Library, rpc string, s *stockRule) bool {
 	if !ok {
 		return false
 	}
-	if c.Effects.is(s.moved, EffectZero) {
-		return true
-	}
-	for _, m := range startsAtZero().FindAllStringSubmatch(c.Summary, -1) {
-		if slices.Contains(s.words, strings.ToLower(m[1])) {
-			return true
-		}
-	}
-	return false
+	return c.Effects.is(s.moved, EffectZero) || slices.ContainsFunc(startsAtZero().FindAllStringSubmatch(c.Summary, -1), func(m []string) bool {
+		return slices.Contains(s.words, strings.ToLower(m[1]))
+	})
 }
 
 func (p *Plan) heldState(lib *Library, st *chain.Step) string {

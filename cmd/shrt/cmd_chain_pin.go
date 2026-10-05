@@ -250,12 +250,7 @@ func failureShape(rec *runner.Record, id string) string {
 }
 
 func ranEveryStep(c *chain.Chain, rec *runner.Record) bool {
-	for _, s := range c.Steps {
-		if _, ok := rec.Step(s.ID); !ok {
-			return false
-		}
-	}
-	return true
+	return !slices.ContainsFunc(c.Steps, func(s *chain.Step) bool { _, ok := rec.Step(s.ID); return !ok })
 }
 
 func expectationFailures(rec *runner.Record) []string {

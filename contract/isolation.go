@@ -3,6 +3,7 @@ package contract
 import (
 	"fmt"
 	"maps"
+	"slices"
 	"strings"
 
 	"github.com/N4darae/shrt/chain"
@@ -164,12 +165,7 @@ func retarget(st *chain.Step, rename map[string]string) {
 }
 
 func (p *Plan) consumed(id string) bool {
-	for _, s := range p.Chain.Steps {
-		if s.ID != id && readsStep(s, id) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(p.Chain.Steps, func(s *chain.Step) bool { return s.ID != id && readsStep(s, id) })
 }
 
 func (p *Plan) noteIsolation() {

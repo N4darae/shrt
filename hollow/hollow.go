@@ -122,12 +122,7 @@ func discriminatesEmptiness(path string, want bool) bool {
 }
 
 func DeclaresRefusal(expect []chain.ExpectResult) bool {
-	for _, e := range expect {
-		if e.Passed && pinsRefusal(e.Path, e.Rule, e.Want) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(expect, func(e chain.ExpectResult) bool { return e.Passed && pinsRefusal(e.Path, e.Rule, e.Want) })
 }
 
 func declaresRefusalExpectation(e chain.Expectation) bool {

@@ -945,12 +945,7 @@ func baselineNoise(v any, fixtures []string) bool {
 	if _, err := time.Parse(time.RFC3339Nano, text); err == nil {
 		return true
 	}
-	for _, f := range fixtures {
-		if strings.Contains(text, f) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(fixtures, func(f string) bool { return strings.Contains(text, f) })
 }
 
 func assertedValues(st *runner.StepRecord, envelope string) []string {

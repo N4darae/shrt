@@ -372,15 +372,9 @@ func (p *Plan) largeBatchLine(lib *Library, rules *effectRules, st *chain.Step, 
 }
 
 func (rules *effectRules) movesStock(rpc string) bool {
-	if rules.increase[rpc] != nil || rules.batch[rpc] != nil || rules.reserve[rpc] != nil {
-		return true
-	}
-	for _, sp := range rules.specs[rpc] {
-		if sp.form == "increase" || sp.form == "reserve" || sp.form == "batch" {
-			return true
-		}
-	}
-	return false
+	return rules.increase[rpc] != nil || rules.batch[rpc] != nil || rules.reserve[rpc] != nil || slices.ContainsFunc(rules.specs[rpc], func(sp effectSpec) bool {
+		return sp.form == "increase" || sp.form == "reserve" || sp.form == "batch"
+	})
 }
 
 func (p *Plan) largeItemFields(lib *Library, rules *effectRules, st *chain.Step, c *RPCContract, m *catalog.Method) []string {

@@ -127,12 +127,10 @@ func detectLiteralCollision(e *env, c *chain.Chain, rec *runner.Record) *literal
 }
 
 func builtOnlyFromGenerators(text string) bool {
-	for _, m := range requestRef.FindAllStringSubmatch(text, -1) {
-		if k := chain.ParseRef(m[1]).Kind; k != chain.RefUUID && k != chain.RefClock {
-			return false
-		}
-	}
-	return true
+	return !slices.ContainsFunc(requestRef.FindAllStringSubmatch(text, -1), func(m []string) bool {
+		k := chain.ParseRef(m[1]).Kind
+		return k != chain.RefUUID && k != chain.RefClock
+	})
 }
 
 func leafName(path string) string {

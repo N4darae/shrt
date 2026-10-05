@@ -598,12 +598,7 @@ func effectiveEnvelopePath(cat *catalog.Catalog, cfg *config.Config) string {
 
 func declaredSomewhere(cat *catalog.Catalog, path string) bool {
 	segs := chain.SplitPath(path)
-	for _, m := range cat.Methods() {
-		if catalog.HasPath(catalog.DescribeMessage(m.Output()).Fields, segs) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(cat.Methods(), func(m *catalog.Method) bool { return catalog.HasPath(catalog.DescribeMessage(m.Output()).Fields, segs) })
 }
 
 func DescriptorMatchesRebuild(ctx context.Context, cfg *config.Config) (bool, error) {
