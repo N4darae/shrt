@@ -145,7 +145,7 @@ func pinRound(ctx context.Context, e *env, c *chain.Chain, ref string, round int
 	if len(failing) == 0 {
 		return "", "", fmt.Errorf("not pinned: no step of run %s failed an expectation, and kept_red pins failed expectations only", rec.RunID)
 	}
-	if other := slicesWithout(failedSteps(rec), failing); len(other) > 0 {
+	if other := slices.DeleteFunc(failedSteps(rec), func(id string) bool { return slices.Contains(failing, id) }); len(other) > 0 {
 		return "", "", fmt.Errorf("not pinned: %s in run %s errored rather than failed an expectation, so no kept_red can pin it: shrt run %s says why",
 			strings.Join(other, ", "), rec.RunID, ref)
 	}
@@ -256,24 +256,8 @@ func ranEveryStep(c *chain.Chain, rec *runner.Record) bool {
 func expectationFailures(rec *runner.Record) []string {
 	out := []string{}
 	for _, st := range rec.Steps {
-		if st == nil || st.Status != runner.StatusFailed {
-			continue
-		}
-		for _, x := range st.Expect {
-			if !x.Passed && x.Rule != "unevaluated" {
-				out = append(out, st.ID)
-				break
-			}
-		}
-	}
-	return out
-}
-
-func slicesWithout(all, drop []string) []string {
-	out := []string{}
-	for _, s := range all {
-		if !slices.Contains(drop, s) {
-			out = append(out, s)
+		if st != nil && st.Status == runner.StatusFailed && slices.ContainsFunc(st.Expect, func(x chain.ExpectResult) bool { return !x.Passed && x.Rule != "unevaluated" }) {
+			out = append(out, st.ID)
 		}
 	}
 	return out

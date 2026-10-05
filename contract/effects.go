@@ -742,12 +742,9 @@ func (p *Plan) noteBelowZero(r *effectRules, md *effectModel) {
 		}
 		rpc := canonicalCall(p.cat, st.Call)
 		s := md.stockOf[e]
-		adders := []string{}
-		for _, a := range chain.SortedKeys(r.increase) {
-			if r.increase[a].entityRPC == s.entityRPC && r.increase[a].sign > 0 {
-				adders = append(adders, a)
-			}
-		}
+		adders := slices.DeleteFunc(chain.SortedKeys(r.increase), func(a string) bool {
+			return r.increase[a].entityRPC != s.entityRPC || r.increase[a].sign <= 0
+		})
 		need := "the rpc that adds it"
 		if len(adders) > 0 {
 			need = strings.Join(adders, ", ")

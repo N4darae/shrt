@@ -925,12 +925,10 @@ func alsoBaselined(rec *runner.Record, st *runner.StepRecord) string {
 }
 
 func listKey(path string) string {
-	out := []string{}
-	for _, seg := range strings.Split(path, ".") {
-		if _, err := strconv.Atoi(seg); err != nil && seg != "" {
-			out = append(out, seg)
-		}
-	}
+	out := slices.DeleteFunc(strings.Split(path, "."), func(seg string) bool {
+		_, err := strconv.Atoi(seg)
+		return err == nil || seg == ""
+	})
 	return namecase.Fold(strings.Join(out, "."))
 }
 

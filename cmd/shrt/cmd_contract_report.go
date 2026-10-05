@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"slices"
 	"sort"
 	"strings"
 
@@ -554,12 +555,7 @@ func clip(values []string, max int) []string {
 }
 
 func qualityGapsNow(report contract.QualityReport, withUncovered bool) string {
-	rows := []contract.QualityRPC{}
-	for _, r := range report.RPCs {
-		if r.Score > 0 && (withUncovered || !r.NoContract) {
-			rows = append(rows, r)
-		}
-	}
+	rows := slices.DeleteFunc(slices.Clone(report.RPCs), func(r contract.QualityRPC) bool { return r.Score <= 0 || !withUncovered && r.NoContract })
 	sort.SliceStable(rows, func(i, j int) bool { return rows[i].Score > rows[j].Score })
 	parts := []string{}
 	for i, r := range rows {

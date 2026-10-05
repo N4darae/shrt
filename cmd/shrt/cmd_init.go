@@ -48,13 +48,10 @@ func unexportedLoginVars() []string {
 	if err != nil || cfg.Auth == nil {
 		return nil
 	}
-	unset := []string{}
-	for _, name := range chain.AuthBodyEnvNames(cfg.Auth.Body) {
-		if _, set := os.LookupEnv(name); !set {
-			unset = append(unset, name)
-		}
-	}
-	return unset
+	return slices.DeleteFunc(chain.AuthBodyEnvNames(cfg.Auth.Body), func(name string) bool {
+		_, set := os.LookupEnv(name)
+		return set
+	})
 }
 
 func initRepo(ctx context.Context, args []string, loginUnsent *bool) error {
@@ -299,12 +296,7 @@ func ensureGitignore(root string, want []string) (bool, error) {
 	for _, line := range strings.Split(string(existing), "\n") {
 		present[strings.TrimSpace(line)] = true
 	}
-	missing := []string{}
-	for _, line := range want {
-		if !present[line] {
-			missing = append(missing, line)
-		}
-	}
+	missing := slices.DeleteFunc(slices.Clone(want), func(line string) bool { return present[line] })
 	if len(missing) == 0 {
 		return false, nil
 	}

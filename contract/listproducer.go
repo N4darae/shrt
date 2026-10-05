@@ -1,6 +1,7 @@
 package contract
 
 import (
+	"slices"
 	"sort"
 	"strings"
 
@@ -52,12 +53,7 @@ func creatorOf(msg string, lib *Library, cat *catalog.Catalog) string {
 	if len(cands) == 1 {
 		return cands[0]
 	}
-	creates := []string{}
-	for _, c := range cands {
-		if strings.HasPrefix(shortRPC(c), "Create") {
-			creates = append(creates, c)
-		}
-	}
+	creates := slices.DeleteFunc(cands, func(c string) bool { return !strings.HasPrefix(shortRPC(c), "Create") })
 	if len(creates) == 1 {
 		return creates[0]
 	}
