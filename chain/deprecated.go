@@ -13,13 +13,12 @@ func lintDeprecated(s *Step, m *catalog.Method) []Issue {
 	issues := []Issue{}
 	if m.Deprecated() {
 		issues = append(issues, Issue{Step: s.ID, Severity: SeverityWarn, Kind: KindDeprecated, Message: fmt.Sprintf(
-			"calls %s, which the proto marks deprecated (option deprecated = true): it may be removed, and this step with it; "+
-				"move the step to its replacement, or keep it until the rpc goes and expect it then", m.FullName)})
+			"calls %s, deprecated in the proto; move the step to its replacement before the rpc goes", m.FullName)})
 	}
 	in := catalog.DescribeMessage(m.Input()).Fields
 	for _, path := range deprecatedBodyPaths(s.Body, "", in) {
 		issues = append(issues, Issue{Step: s.ID, Severity: SeverityWarn, Kind: KindDeprecated, Message: fmt.Sprintf(
-			"body field %q is deprecated in %s (option deprecated = true): the backend may stop reading it", path, m.Input().FullName())})
+			"body field %q is deprecated in %s: the backend may stop reading it", path, m.Input().Name())})
 	}
 	out := m.Response().Fields
 	seen := map[string]bool{}
@@ -30,7 +29,7 @@ func lintDeprecated(s *Step, m *catalog.Method) []Issue {
 		seen[e.Path] = true
 		if deprecatedAlong(out, SplitPath(e.Path)) {
 			issues = append(issues, Issue{Step: s.ID, Severity: SeverityWarn, Kind: KindDeprecated, Message: fmt.Sprintf(
-				"expect on %q reads a field %s marks deprecated (option deprecated = true): the backend may stop sending it", e.Path, m.Output().FullName())})
+				"expect %s reads a field deprecated in %s: the backend may stop sending it", e.Path, m.Output().Name())})
 		}
 	}
 	return issues

@@ -103,6 +103,16 @@ func (e *NameMismatchError) Error() string {
 		"a reader looking for %s finds no file of that name, and one looking at %s.yaml expects chain %s", e.Path, e.Name, e.Name, e.Stem, e.Name, e.Name, e.Stem, e.Stem)
 }
 
+func (e *NameMismatchError) Lead() string {
+	switch {
+	case len(e.Clash) > 0:
+		return fmt.Sprintf("declares name: %s, and so does %s", e.Name, strings.Join(e.Clash, ", "))
+	case e.NameFile != "":
+		return fmt.Sprintf("declares name: %s, while %s is chain %s", e.Name, filepath.Base(e.NameFile), e.NameFileChain)
+	}
+	return fmt.Sprintf("declares name: %s, not %s", e.Name, e.Stem)
+}
+
 func (e *NameMismatchError) Remedy() string {
 	if len(e.Clash) > 0 || e.NameFile != "" {
 		return fmt.Sprintf("set name: %s in %s (or drop name:), or delete the file if it is a scratch copy", e.Stem, filepath.Base(e.Path))

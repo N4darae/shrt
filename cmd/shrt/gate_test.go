@@ -6,6 +6,7 @@ import (
 	"errors"
 	"flag"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -296,6 +297,24 @@ func TestRunHandsItsNotesAndErrorToTheGateInTheSidecar(t *testing.T) {
 	}
 }
 
+func TestARefusedRunHandsTheGateEveryChainErrorOnOneLine(t *testing.T) {
+	srv := newFakeCLIBackend()
+	t.Cleanup(srv.Close)
+	chdirToFreshCLIWorkspace(t, srv.URL)
+	writeFile(t, ".shrt/chains/cli-broken.yaml", "apiVersion: shrt/v1\nname: cli-broken\nsteps:\n"+
+		"  - id: fetch\n    call: ThingService/Fetch\n    body: {id: \"${nope.id}\"}\n    expect:\n      - {path: error.code, equals: OK}\n"+
+		"  - id: typo\n    call: ThingService/Fecth\n    body: {id: x}\n")
+	path := t.TempDir() + "/side.json"
+	t.Setenv(gateReportEnv, path)
+	captureStdout(t, func() { _ = runRun(context.Background(), []string{"cli-broken", "-quiet"}) })
+	var side gateSidecar
+	raw, _ := os.ReadFile(path)
+	if json.Unmarshal(raw, &side) != nil || !strings.HasPrefix(side.Error, "chain cli-broken: nothing was sent: [fetch] ${nope.id} names no step") ||
+		!strings.Contains(side.Error, "; [typo] unknown rpc") || strings.Contains(side.Error, "\n") {
+		t.Fatalf("the gate gets every chain error on one line: %s", raw)
+	}
+}
+
 func TestTheGateRunsAChainWithoutASafeSpotPastItsFirstFailure(t *testing.T) {
 	twoDefectWorkspace(t, "name", "gadget")
 	inProcessGate(t)
@@ -327,5 +346,13 @@ func TestVerifyOfARecordedRunOfAChainWithoutASafeSpotListsItsFailedExpectations(
 	out = captureStdout(t, func() { err = runVerify(context.Background(), []string{"cli-two-defects", "-run", "latest", "-json"}) })
 	if err == nil || !strings.Contains(err.Error(), "has no safe spot") || out != "" {
 		t.Fatalf("-json has no diff to emit, so it stays the error (%v):\n%s", err, out)
+	}
+}
+
+func TestTheGateReadsAFoldedVerifyLineAsOneChangePerStep(t *testing.T) {
+	got := changeLines("x: DRIFT\n  [a, b] changed total want=1 got=2\n  [c..d] not_reached 2 steps, not sent\n")
+	want := []string{"[a] changed total want=1 got=2", "[b] changed total want=1 got=2", "[c..d] not_reached 2 steps, not sent"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("got %q", got)
 	}
 }

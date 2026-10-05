@@ -5,6 +5,7 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -91,9 +92,8 @@ func runRun(ctx context.Context, args []string) (err error) {
 	if err := refuseShadowingChainFile(e, rest[0], c); err != nil {
 		return err
 	}
-	if err := refuseUnreachableExpects(e, c, rest[0]); err != nil {
-		return err
-	}
+	defer func() { err = withLintWarnings(e, c, rest[0], err) }()
+	refuse := unreachableExpects(e, c)
 
 	supplied := c.CoerceVars(vars)
 	if err := checkUnusedVars(c, vars, supplied); err != nil {
@@ -104,7 +104,7 @@ func runRun(ctx context.Context, args []string) (err error) {
 			return fmt.Errorf("-repeat compares the verdicts of 2 or more real runs: give -repeat 2 or more, without -dry-run")
 		}
 		return runRepeated(ctx, e, c, *repeat, supplied, runner.Options{
-			Volatile: e.cfg.Volatile, Redact: e.cfg.Redact, KeepGoing: *keepGoing || !flagGiven(fs, "keep-going"), Build: *build,
+			Volatile: e.cfg.Volatile, Redact: e.cfg.Redact, KeepGoing: *keepGoing || !flagGiven(fs, "keep-going"), Build: *build, Refuse: refuse,
 		}, *save, *quiet, *asJSON)
 	}
 
@@ -123,7 +123,7 @@ func runRun(ctx context.Context, args []string) (err error) {
 		}
 	}
 	rec, err := executeChain(ctx, e, c, withLatency(runner.Options{
-		Vars: supplied, Volatile: e.cfg.Volatile, Redact: e.cfg.Redact, DryRun: *dry, KeepGoing: *keepGoing, Build: *build,
+		Vars: supplied, Volatile: e.cfg.Volatile, Redact: e.cfg.Redact, DryRun: *dry, KeepGoing: *keepGoing, Build: *build, Refuse: refuse,
 	}, latencyPolicy(e), latencySpot), *quiet || *asJSON, !*keepGoing || *verbose)
 	if err != nil {
 		return err
@@ -276,17 +276,42 @@ const runExitCodes = "\nexit codes:\n" +
 	"  1  failed: an expectation, a FINDING, kept_red not as pinned or gone, or refused before sending\n" +
 	"  3  no verdict: unreachable, answered unavailable, a restart mid-run, login or auth refused; re-run\n"
 
-func refuseUnreachableExpects(e *env, c *chain.Chain, ref string) error {
-	issues := chain.UnreachableExpectations(c, e.cat)
-	if len(issues) == 0 {
-		return nil
+func unreachableExpects(e *env, c *chain.Chain) []string {
+	at := map[string]int{}
+	for i, s := range c.Steps {
+		if s == nil {
+			continue
+		}
+		if _, seen := at[s.ID]; !seen {
+			at[s.ID] = i + 1
+		}
 	}
-	lines := make([]string, 0, len(issues))
-	for _, i := range issues {
-		lines = append(lines, "step "+i.Step+": "+i.Message)
+	out := []string{}
+	for _, i := range chain.UnreachableExpectations(c, e.cat) {
+		out = append(out, fmt.Sprintf("step %q (step %d): %s", i.Step, at[i.Step], i.Message))
 	}
-	return fmt.Errorf("chain error in %s, not a backend fault, so nothing was sent: %s\nshrt chain lint %s lists every lint error",
-		c.Name, strings.Join(lines, "\n"), ref)
+	return out
+}
+
+func withLintWarnings(e *env, c *chain.Chain, ref string, err error) error {
+	var refusal *runner.Refusal
+	if !errors.As(err, &refusal) {
+		return err
+	}
+	opts, lintErr := chainLintOptions(e, false)
+	if lintErr != nil {
+		return err
+	}
+	warned := 0
+	for _, i := range lintChainWith(e, c, opts) {
+		if i.Severity == chain.SeverityWarn && i.Kind != chain.KindUnsetInput {
+			warned++
+		}
+	}
+	if warned == 0 {
+		return err
+	}
+	return fmt.Errorf("%w\nchain lint has %s too: shrt chain lint %s", err, plural(warned, "warning"), ref)
 }
 
 func runVerdict(rec *runner.Record) error {
@@ -640,12 +665,18 @@ func runSummary(e *env, rec *runner.Record, dry, stepsShown bool, lead string, f
 	if rec.Build != "" {
 		fmt.Fprintf(&b, "\n  build: %s at %s", rec.Build, rec.Target)
 	}
-	if len(rec.FailedSteps) > 0 {
-		fmt.Fprintf(&b, "\n  did not pass: %s", chain.ListSome(rec.FailedSteps, 10))
-	}
 	failure := rec.Failure
 	if stepsShown {
 		failure = notAbove(failure)
+	}
+	if len(rec.FailedSteps) > 0 {
+		head, rest, _ := strings.Cut(failure, "\n")
+		if strings.HasSuffix(head, " did not pass") {
+			fmt.Fprintf(&b, "\n  %s: %s", head, chain.ListSome(rec.FailedSteps, 10))
+			failure = rest
+		} else {
+			fmt.Fprintf(&b, "\n  did not pass: %s", chain.ListSome(rec.FailedSteps, 10))
+		}
 	}
 	if failure != "" {
 		fmt.Fprintf(&b, "\n  %s", strings.ReplaceAll(failure, "\n", "\n  "))
@@ -723,7 +754,7 @@ func failureRequests(e *env, rec *runner.Record, dry bool) []string {
 		if len(lines[key]) == 0 || !named[key] && f.r.Kind != "" {
 			lines[key], named[key], hints[key] = nil, f.r.Kind != "", tellApart(e, f.r, f.path)
 			if req := requestLine(f.r, f.st.ID, recordSent(e, rec)); req != "" {
-				lines[key] = append(slices.DeleteFunc([]string{f.r.String()}, func(s string) bool { return s == "" }), req)
+				lines[key] = suspectSent(f.r, req)
 			}
 		}
 		count[key]++
@@ -740,6 +771,19 @@ func failureRequests(e *env, rec *runner.Record, dry bool) []string {
 		out = append(out, hint)
 	}
 	return out
+}
+
+func suspectSent(r reason, req string) []string {
+	who := r.String()
+	if who == "" {
+		return []string{req}
+	}
+	at, body, ok := strings.Cut(req, " sent ")
+	as, own := strings.CutPrefix(at, r.Step)
+	if r.Kind == reasonWrite && ok && own && (as == "" || strings.HasPrefix(as, " ")) && strings.HasSuffix(who, as) {
+		return []string{who + ", sent " + body}
+	}
+	return []string{who, req}
 }
 
 func quietlyGreen(rec *runner.Record) bool {

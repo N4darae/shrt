@@ -34,7 +34,7 @@ No verdict: the backend was unreachable or restarting, a fixture was reused, or 
 `vars` values are not resolved. Put `${uuid}` in the body, or pass `-var key=...`.
 
 ### 10. A green `-dry-run`, then a red first run
-A dry run has no responses, so references resolve to scaffold values. It proves the chain's shape, not bodies built from references. Run `chain lint`, then a real run.
+A dry run has no responses, so references resolve to scaffold values. It proves the chain's shape, not bodies built from references.
 
 ### 11. A number or clock comparison fails on equal-looking values
 `equals` compares text and does no arithmetic: `${a.qty}+${b.qty}` is the text `0+5`. Work the result out and assert a literal. Compare clocks with `within: {of: "${nowunix+3600}", by: 5}`, never `equals`.

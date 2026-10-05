@@ -251,7 +251,7 @@ func TestAStaleIdIsNotPrintedAsWantAndGotThatLookEqual(t *testing.T) {
 		}
 		seen := false
 		for _, line := range strings.Split(rep.Text(), "\n") {
-			if !strings.Contains(line, "[order]") || !strings.Contains(line, "id_customer") {
+			if !strings.Contains(line, "[order, fetch]") || !strings.Contains(line, "id_customer") {
 				continue
 			}
 			seen = true

@@ -56,11 +56,9 @@ func lintUnscopedCount(s *Step, m *catalog.Method) []Issue {
 	for _, list := range SortedKeys(counted) {
 		n := counted[list]
 		issues = append(issues, Issue{Step: s.ID, Severity: SeverityWarn, Kind: KindUnscopedCount, Message: fmt.Sprintf(
-			"asserts %s holds at most %d item(s) (%s.%d exists: false), but nothing in the request scopes the list to what "+
-				"this run created (no field reads a var, a step or a generator), so it lists everything the backend holds and "+
-				"fails on the second run against the same database. Scope it (a prefix built from ${vars.tag} that the fixtures "+
-				"carry, or the id of a parent this run created), or assert a lower bound only (%s.%d exists: true)",
-			list, n, list, n, list, max(n-1, 0))})
+			"asserts %s holds at most %d item(s), but the request is not scoped to this run; scope it by ${vars.tag} "+
+				"or a parent id, or assert a lower bound only (%s.%d exists: true)", list, n, list, max(n-1, 0)),
+			Why: "an unscoped list holds everything the backend has, so the count fails on the second run against the same database"})
 	}
 	return issues
 }

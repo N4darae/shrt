@@ -34,9 +34,8 @@ func varStructures(s *Step, vars map[string]any) []string {
 			if header {
 				how = "fills " + where
 			}
-			out = append(out, fmt.Sprintf("${%s} %s (%q), but that var holds a %s — a %s has no text form, so it would be "+
-				"sent as Go syntax (map[...] or [...]) instead of anything the backend reads, and shrt run refuses the chain "+
-				"before sending anything. Interpolate one scalar field of it instead (${vars.%s.<field>})", ref, how, text, kind, kind, r.Rest))
+			out = append(out, fmt.Sprintf("${%s} %s (%q), but that var holds a %s, which has no text form; use one scalar "+
+				"field of it (${vars.%s.<field>})", ref, how, text, kind, r.Rest))
 		}
 	}
 	walkLeaves(s.Body, "", "", func(path, _, t string) { check(path, t, false) })

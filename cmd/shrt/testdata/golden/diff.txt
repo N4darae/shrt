@@ -1,8 +1,7 @@
 $ shrt diff RUNID RUNID  [exit 1]
 diff of probe-orders: run A RUNID (passed) vs run B RUNID (failed); b= is the newer value
-first failing step moved: A none, B cancel_confirmed
 step status changes (A -> B):
-  cancel_confirmed  passed -> failed
+  passed -> failed: cancel_confirmed
 2 response difference(s) in steps both runs reached:
   [cancel_confirmed] changed status.code a=SUCCESS b=REJECTED
   [cancel_confirmed] changed status.message a="" b=StillConfirmed

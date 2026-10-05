@@ -176,6 +176,10 @@ func writeGateSidecar(sidecar func() gateSidecar, err error) {
 	if err != nil {
 		side.Error, _, _ = strings.Cut(err.Error(), "\n")
 	}
+	var refusal *runner.Refusal
+	if errors.As(err, &refusal) {
+		side.Error = "chain " + refusal.Chain + ": nothing was sent: " + strings.Join(refusal.Lines(), "; ")
+	}
 	if raw, err := json.Marshal(side); err == nil {
 		_ = os.WriteFile(path, raw, 0o600)
 	}
@@ -1542,8 +1546,13 @@ var verifyChangeLine = regexp.MustCompile(`^\[([^\]]+)\] +(\S+) +(\S+)`)
 func changeLines(stdout string) []string {
 	var out []string
 	for _, l := range strings.Split(stdout, "\n") {
-		if rest, ok := strings.CutPrefix(l, "  ["); ok {
-			out = append(out, "["+rest)
+		rest, ok := strings.CutPrefix(l, "  [")
+		if !ok {
+			continue
+		}
+		steps, tail, _ := strings.Cut(rest, "]")
+		for _, step := range strings.Split(steps, ", ") {
+			out = append(out, "["+step+"]"+tail)
 		}
 	}
 	return out

@@ -181,12 +181,28 @@ func TestRunRepeatSaysWhatAFailedStepAnsweredNotItsStatus(t *testing.T) {
 	}
 }
 
+func TestRunRefusesEveryChainErrorAtOnceAndCountsLintWarnings(t *testing.T) {
+	broken := strings.Replace(handReproChain, "{path: qty_on_hand, equals: \"10\"}", "{path: product.qty_on_hand, equals: \"10\"}", 1)
+	broken = strings.Replace(broken, "${create_customer.customer.id_customer}", "${create_custmer.customer.id_customer}", 1)
+	broken = strings.Replace(broken, "@example.test\"}\n    expect:\n      - {path: status.code, equals: SUCCESS}\n", "@example.test\"}\n", 1)
+	shop := handReproShop(t, false, broken)
+	out, code := runOut(t, handReproPath)
+	if code != 1 || !strings.Contains(out, "nothing was sent, 2 chain errors:\n  [add_stock] expect product.qty_on_hand: no such field") ||
+		!strings.Contains(out, "\n  [create_order] ${create_custmer.customer.id_customer} names no step of this chain (did you mean \"create_customer\"?)") ||
+		!strings.Contains(out, "\nchain lint has 1 warning too: shrt chain lint "+handReproPath) {
+		t.Fatalf("exit %d\n%q", code, out)
+	}
+	if shop.next != 0 || shop.addCalls != 0 {
+		t.Fatalf("a refused chain sends nothing, the shop saw %d creates and %d stock calls", shop.next, shop.addCalls)
+	}
+}
+
 func TestRunRefusesAnExpectPathTheResponseHasNoFieldForAsAChainError(t *testing.T) {
 	shop := handReproShop(t, false, strings.Replace(handReproChain, "{path: qty_on_hand, equals: \"10\"}", "{path: product.qty_on_hand, equals: \"10\"}", 1))
 	for _, args := range [][]string{{handReproPath}, {handReproPath, "-dry-run"}, {handReproPath, "-repeat", "3"}} {
 		out, code := runOut(t, args...)
-		if code != 1 || !strings.Contains(out, "chain error in repro-confirm, not a backend fault, so nothing was sent: step add_stock: expect on \"product.qty_on_hand\" reads a path that is not a field of shop.catalog.v1.AddStockResponse") ||
-			!strings.Contains(out, "shrt chain lint "+handReproPath) || strings.Contains(out, "suspect") {
+		if code != 1 || !strings.Contains(out, "chain repro-confirm: nothing was sent, 1 chain error:\n  [add_stock] expect product.qty_on_hand: no such field in AddStockResponse") ||
+			strings.Contains(out, "suspect") {
 			t.Fatalf("%v: exit %d\n%s", args, code, out)
 		}
 	}

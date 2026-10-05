@@ -28,10 +28,9 @@ type Expectation struct {
 func (e Expectation) vacuousWhy() string {
 	switch e.vacuous {
 	case `contains: ""`:
-		return `contains: "", which every value contains, so it can never fail; write the text the value must contain`
+		return `contains: "", which every value contains; write the text it must contain`
 	case "not_empty: false":
-		return "not_empty: false, which asks for nothing (only not_empty: true is a check), so it can never fail; " +
-			"write not_empty: true, or exists: false for a field that must be absent"
+		return "not_empty: false, which checks nothing; write not_empty: true, or exists: false for an absent field"
 	}
 	return ""
 }
@@ -260,13 +259,11 @@ func WantGot(rule, want, got string) string {
 func TautologyReason(e Expectation) string {
 	switch {
 	case e.Exists != nil && *e.Exists && IsEnvelopePath(e.Path):
-		return "only asserts that the envelope is present, which every well-formed response carries"
+		return "asserts only that the envelope is present"
 	case (e.NotEmpty || (e.Exists != nil && *e.Exists)) && alwaysPresentTransportPath(e.Path):
-		return "asserts that the call has a transport outcome, which every answered call has — success " +
-			"or refusal"
+		return "asserts only that the call was answered"
 	case e.NotEmpty && (e.Path == EnvelopeField() || e.Path == EnvelopePath()):
-		return "asserts that the envelope is non-empty, which it always is — every response carries a " +
-			"code, success or refusal"
+		return "asserts only that the envelope is non-empty, as every answer's is"
 	}
 	return ""
 }
@@ -274,13 +271,11 @@ func TautologyReason(e Expectation) string {
 func TautologyRemedy(e Expectation) string {
 	switch {
 	case alwaysPresentTransportPath(e.Path):
-		return fmt.Sprintf("Assert the outcome's VALUE instead: %s.code equals: %s for a call that must "+
-			"succeed, or the refusal it must get, e.g. %s.code equals: unauthenticated", TransportPrefix, TransportOK, TransportPrefix)
+		return fmt.Sprintf("assert %s.code equals: %s, or the refusal, e.g. %s.code equals: unauthenticated", TransportPrefix, TransportOK, TransportPrefix)
 	case IsEnvelopePath(e.Path) || e.Path == EnvelopePath():
-		return fmt.Sprintf("Assert the code's VALUE instead: %s equals: %s for a call that must succeed, or "+
-			"the refusal code it must get", EnvelopePath(), EnvelopeOK())
+		return fmt.Sprintf("assert %s equals: %s, or the refusal code", EnvelopePath(), EnvelopeOK())
 	}
-	return "Assert the value this step should have produced"
+	return "assert the value expected"
 }
 
 func EnumTautologyReason(e Expectation, enumValues []string) string {
@@ -288,5 +283,5 @@ func EnumTautologyReason(e Expectation, enumValues []string) string {
 		return ""
 	}
 	want := stringify(e.NotEqual)
-	return fmt.Sprintf("says the value is not %q, which is not one of the values this field can hold (%s)", want, strings.Join(enumValues, ", "))
+	return fmt.Sprintf("not_equal %q names no value of the enum (%s)", want, strings.Join(enumValues, ", "))
 }

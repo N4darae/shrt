@@ -1141,7 +1141,7 @@ func TestAlsoLinesFoldAStepsPathsWithOneSuspect(t *testing.T) {
 	report := &diff.Report{Changes: changes}
 	out := otherRoots(verifyItems(effectsEnv(t), cancelConfirmed(), report), &changes[0])
 	want := []string{
-		"  also: cancel_order (CancelOrder) order.status want=ORDER_STATUS_CANCELLED got=ORDER_STATUS_CONFIRMED; suspect write cancel_order (CancelOrder)",
+		"  also: cancel_order (CancelOrder) order.status want=ORDER_STATUS_CANCELLED got=ORDER_STATUS_CONFIRMED; suspect the write",
 		"  also: cancel_order_again (CancelOrder) status.code want=REJECTED got=SUCCESS; suspect write cancel_order (CancelOrder)",
 	}
 	if got := strings.Split(strings.TrimRight(out, "\n"), "\n"); !slices.Equal(got, want) {

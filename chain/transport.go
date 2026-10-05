@@ -78,9 +78,7 @@ func alwaysPresentTransportPath(path string) bool {
 func transportHint(path string) string {
 	switch SplitPath(path)[0] {
 	case "code", "message", "http_status", "status":
-		return fmt.Sprintf(". If this is the refusal a Connect error carries (HTTP 4xx/5xx with a "+
-			"{\"code\", \"message\"} body) rather than a field of the response, assert it with one of %s",
-			strings.Join(TransportFieldNames(), ", "))
+		return fmt.Sprintf("; a Connect error's refusal is %s", strings.Join(TransportFieldNames(), ", "))
 	}
 	return ""
 }
@@ -94,22 +92,19 @@ func lintTransport(s *Step, m *catalog.Method) []Issue {
 		}
 		if !KnownTransportPath(e.Path) {
 			issues = append(issues, Issue{Step: s.ID, Severity: SeverityError, Message: fmt.Sprintf(
-				"expect on %q: %s. is reserved for the recorded transport result, and the only paths "+
-					"under it are %s — this one can never be present",
+				"expect %s is never present: %s. holds only %s",
 				e.Path, TransportPrefix, strings.Join(TransportFieldNames(), ", "))})
 			continue
 		}
 		if shadowed {
 			issues = append(issues, Issue{Step: s.ID, Severity: SeverityWarn, Message: fmt.Sprintf(
-				"expect on %q reads the transport result, not the field %q that %s also declares — the "+
-					"reserved path wins, so the response field cannot be asserted under that name",
-				e.Path, TransportPrefix, m.Output().FullName())})
+				"expect %s reads the transport result, not %s's own field %q, which cannot be asserted",
+				e.Path, m.Output().Name(), TransportPrefix)})
 		}
 	}
 	if s.Auth == InvalidTokenAuth && len(s.Export) > 0 {
 		issues = append(issues, Issue{Step: s.ID, Severity: SeverityError, Message: fmt.Sprintf(
-			"auth: %s sends a token the backend never issued, to prove it is refused, so there is no "+
-				"response to export from. Export from a step that runs as a real principal",
+			"auth: %s is refused, so it has no response to export; export from a step with a real principal",
 			InvalidTokenAuth)})
 	}
 	return issues

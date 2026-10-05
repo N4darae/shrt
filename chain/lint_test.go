@@ -374,7 +374,7 @@ func TestLint(t *testing.T) {
 		{name: "an export of a field the response lacks", c: thing(create(map[string]any{"name": "w", "kind": "KIND_A"}, map[string]string{"x": "no_such_field"})),
 			want: []hit{h(sevE, chain.KindBadExport)}, n: 1},
 		{name: "a step that does not exist", c: thing(create(map[string]any{"name": "w"}, nil), fetch(map[string]any{"id": "${create_custmer.id}"})),
-			n: 1, want: []hit{{has: []string{"does not exist"}, lacks: []string{"does not run before"}}}},
+			n: 1, want: []hit{{has: []string{"names no step"}, lacks: []string{"does not run before"}}}},
 		{name: "a misspelt step id is suggested", c: thing(&chain.Step{ID: "create_customer", Call: "ThingService/Create", Body: map[string]any{"name": "w"}},
 			fetch(map[string]any{"id": "${create_custmer.id}"})), want: []hit{h("", "", `did you mean "create_customer"`)}},
 		{name: "an export read before its step", c: thing(fetch(map[string]any{"id": "${pid}"}), create(map[string]any{"name": "w"}, map[string]string{"pid": "id"})),
@@ -434,28 +434,28 @@ func TestLint(t *testing.T) {
 		{name: "an undeclared var is no error", c: inputs(nil, "${vars.business_date}"), pick: h(sevE, "")},
 		{name: "an undeclared var is warned", c: inputs(nil, "${vars.business_date}"), pick: h("", "", "business_date"), want: []hit{h("", "", "-var business_date=")}},
 		{name: "a declared var", c: inputs(map[string]any{"business_date": "2026-01-01"}, "${vars.business_date}"), pick: h("", "", "business_date")},
-		{name: "a step asserting nothing", c: silent, pick: h("", "", "asserts nothing at all"), want: []hit{h(sevW, "")}},
+		{name: "a step asserting nothing", c: silent, pick: h("", "", "asserts nothing"), want: []hit{h(sevW, "", "error.code equals: OK")}},
 		{name: "a setup step is no error", c: silent, pick: h(sevE, "")},
-		{name: "a step that asserts", c: inputs(nil, "widget"), pick: h("", "", "asserts nothing at all")},
+		{name: "a step that asserts", c: inputs(nil, "widget"), pick: h("", "", "asserts nothing")},
 
-		{name: "a producer path the response lacks", c: crossStep("${create.thing.id}", nil), pick: h("", "", "cannot produce it"),
+		{name: "a producer path the response lacks", c: crossStep("${create.thing.id}", nil), pick: h("", "", "not a field of"),
 			n: 1, want: []hit{h(sevE, "", "thing.id", "exports.")}},
-		{name: "a misspelt producer field", c: crossStep("${create.nmae}", nil), pick: h("", "", "cannot produce it"),
-			n: 1, want: []hit{{has: []string{`(did you mean "name"?)`}, lacks: []string{"would kill the run"}}}},
+		{name: "a misspelt producer field", c: crossStep("${create.nmae}", nil), pick: h("", "", "not a field of"),
+			n: 1, want: []hit{{has: []string{`(did you mean "name"?)`}, lacks: []string{"exports."}}}},
 		{name: "an expect path the response lacks", c: fetching(chain.Expectation{Path: "no_such_field", Equals: "x"}),
-			pick: h("", "", "can never be present"), n: 1, want: []hit{{sev: sevE, has: []string{"no_such_field"}, lacks: []string{"exists: false"}}}},
+			pick: h("", "", "no such field"), n: 1, want: []hit{{sev: sevE, has: []string{"no_such_field"}, lacks: []string{"exists: false"}}}},
 		{name: "real response paths", c: fetching(chain.Expectation{Path: "name", Equals: "widget"}, chain.Expectation{Path: "id", NotEmpty: true}, chain.Expectation{Path: "name", Exists: &no}),
-			pick: h("", "", "can never be present")},
+			pick: h("", "", "no such field")},
 		{name: "a key inside a proto map", cat: rich, c: one(&chain.Step{ID: "place", Call: "OrderService/PlaceOrder",
-			Expect: []chain.Expectation{{Path: "labels.anything_at_all", Equals: "x"}, {Path: "id_order", NotEmpty: true}}}), pick: h("", "", "can never be present")},
+			Expect: []chain.Expectation{{Path: "labels.anything_at_all", Equals: "x"}, {Path: "id_order", NotEmpty: true}}}), pick: h("", "", "no such field")},
 		{name: "exists false on a misspelt field", c: one(&chain.Step{ID: "create", Call: "ThingService/Create", Body: map[string]any{"name": "widget", "kind": "KIND_A"},
-			Expect: []chain.Expectation{okCode, {Path: "idd", Exists: &no}}}), pick: h("", "", `"idd"`), want: []hit{h(sevE, chain.KindUnfailable)}},
+			Expect: []chain.Expectation{okCode, {Path: "idd", Exists: &no}}}), pick: h("", "", "expect idd"), want: []hit{h(sevE, chain.KindUnfailable)}},
 		{name: "a renamed leaf names its siblings", c: fetching(chain.Expectation{Path: "error.kode", Equals: "OK"}, chain.Expectation{Path: "no_such.deep", Equals: "x"}),
-			pick: h("", "", "can never be present"), n: 2, want: []hit{
-				h("", "", "error.kode", "if it was renamed in the proto, assert the new name: error declares code"),
-				{has: []string{"no_such.deep"}, lacks: []string{"renamed"}}}},
+			pick: h("", "", "no such field"), n: 2, want: []hit{
+				h("", "", "error.kode", "; error has code"),
+				{has: []string{"no_such.deep"}, lacks: []string{" has "}}}},
 		{name: "a leaf under a parent the response lacks names where it is declared", c: fetching(chain.Expectation{Path: "thing.name", Equals: "x"}),
-			pick: h("", "", "can never be present"), n: 1, want: []hit{h(sevE, "", "did you mean name? The response declares name there")}},
+			pick: h("", "", "no such field"), n: 1, want: []hit{h(sevE, "", "did you mean name?")}},
 		{name: "a folded field path", c: fetching(chain.Expectation{Path: "createdat", NotEmpty: true}), pick: h("", chain.KindUnreachable)},
 		{name: "a folded exists false", c: fetching(chain.Expectation{Path: "CreatedAt", Exists: &no}), pick: h("", chain.KindUnfailable)},
 		{name: "a path no folding resolves", c: fetching(chain.Expectation{Path: "no_such_field", NotEmpty: true}), pick: h("", chain.KindUnreachable), want: []hit{{}}},
@@ -537,10 +537,10 @@ func TestLint(t *testing.T) {
 
 		{name: "a response field on a step refused without a token", c: one(&chain.Step{ID: "fetch_without_token", Call: "ThingService/Fetch", SkipAuth: true, Body: map[string]any{"id": "x"},
 			Expect: []chain.Expectation{{Path: "transport.code", Equals: "unauthenticated"}, {Path: "created_at", Equals: "2026"}}}),
-			pick: h("", chain.KindUnevaluableOnRefusal), n: 1, want: []hit{h(sevE, "", "never evaluated", "created_at")}},
+			pick: h("", chain.KindUnevaluableOnRefusal), n: 1, want: []hit{h(sevE, "", "no body to check created_at")}},
 		{name: "a response field on a step refused with a bad token", c: one(&chain.Step{ID: "fetch_with_bad_token", Call: "ThingService/Fetch", Auth: "invalid", Body: map[string]any{"id": "x"},
 			Expect: []chain.Expectation{{Path: "transport.http_status", Equals: 401}, {Path: "name", NotEmpty: true}}}),
-			pick: h("", chain.KindUnevaluableOnRefusal), n: 1, want: []hit{h(sevE, "", "never evaluated", "name")}},
+			pick: h("", chain.KindUnevaluableOnRefusal), n: 1, want: []hit{h(sevE, "", "no body to check name")}},
 		{name: "a response field on an answered step", c: one(fetch(map[string]any{"id": "x"}, chain.Expectation{Path: "transport.code", Equals: "ok"}, chain.Expectation{Path: "name", NotEmpty: true})),
 			pick: h("", chain.KindUnevaluableOnRefusal)},
 		{name: "transport paths need no descriptor field", c: thing(probe(chain.Expectation{Path: "transport.code", Equals: "unauthenticated"},
@@ -558,14 +558,14 @@ func TestLint(t *testing.T) {
 			{ID: "watch_order", Call: "OrderService/WatchOrder", Body: map[string]any{"id_order": "x"}, Expect: []chain.Expectation{{Path: "messages.0.state", NotEmpty: true}}}}},
 			pick: h("", "", "streaming"), n: 1, want: []hit{{sev: sevE, step: "upload_orders", has: []string{"server-streaming rpcs only"}}}},
 		{name: "a server-streaming step reads under messages", cat: rich, c: one(&chain.Step{ID: "watch_order", Call: "OrderService/WatchOrder", Body: map[string]any{"id_order": "x"},
-			Expect: []chain.Expectation{{Path: "messages.0.state", NotEmpty: true}, {Path: "state", NotEmpty: true}}}), pick: h(sevE, ""), n: 1, want: []hit{h("", "", `"state"`)}},
+			Expect: []chain.Expectation{{Path: "messages.0.state", NotEmpty: true}, {Path: "state", NotEmpty: true}}}), pick: h(sevE, ""), n: 1, want: []hit{h("", "", "expect state:")}},
 
 		{name: "an exact count on an unscoped list", cat: shop, c: unscoped("", chain.Expectation{Path: "products.3", Exists: &no}), pick: h("", chain.KindUnscopedCount),
-			n: 1, want: []hit{h(sevW, "", "products.3 exists: false", "second run", "products.2 exists: true")}},
+			n: 1, want: []hit{h(sevW, "", "at most 3 item(s)", "not scoped to this run", "products.2 exists: true")}},
 		{name: "a count on a list a var scopes", cat: shop, c: unscoped("sku-${vars.tag}-", chain.Expectation{Path: "products.3", Exists: &no}), pick: h("", chain.KindUnscopedCount)},
 		{name: "a lower bound on an unscoped list", cat: shop, c: unscoped("", chain.Expectation{Path: "products.2", Exists: new(true)}), pick: h("", chain.KindUnscopedCount)},
 		{name: "a prefix ending in a var", c: prefixed("sku-${vars.tag}", chain.Expectation{Path: "items.2", Exists: &no}), pick: h("", chain.KindUnterminatedPrefix),
-			n: 1, want: []hit{h(sevW, "", "id_prefix", "sku-${vars.tag}", "tag=cp-1", "cp-10", "sku-${vars.tag}-")}},
+			n: 1, want: []hit{h(sevW, "", "id_prefix", "sku-${vars.tag}", "tag cp-1", "cp-10", "sku-${vars.tag}-")}},
 		{name: "a terminated prefix", c: prefixed("sku-${vars.tag}-", chain.Expectation{Path: "items.2", Exists: &no}), pick: h("", chain.KindUnterminatedPrefix)},
 		{name: "a fixed prefix", c: prefixed("sku-fixed", chain.Expectation{Path: "items.2", Exists: &no}), pick: h("", chain.KindUnterminatedPrefix)},
 		{name: "a prefix ending in a slash", c: prefixed("${vars.tag}/", chain.Expectation{Path: "items.2", Exists: &no}), pick: h("", chain.KindUnterminatedPrefix)},
@@ -573,7 +573,7 @@ func TestLint(t *testing.T) {
 		{name: "unordered on a repeated field", cat: catalogtest.Listing(), c: listWidgets([]string{"widgets"}, []string{"widgets"}), pick: h(sevE, "", "unordered")},
 
 		{name: "a whole-value tag", cat: shop, c: tagChain("${vars.tag}"), pick: h("", "", "${vars.tag}", "sku-${vars.tag}"), want: []hit{h(sevW, "")}},
-		{name: "a tag inside text", cat: shop, c: tagChain("sku-${vars.tag}"), pick: h("", "", "whole value")},
+		{name: "a tag inside text", cat: shop, c: tagChain("sku-${vars.tag}"), pick: h("", "", "${vars.tag} alone")},
 		{name: "id-shaped volatile patterns", c: &chain.Chain{Name: "t", Volatile: []string{"**.id_product", "**.created_at", "**.*_id"}, Steps: []*chain.Step{
 			{ID: "create", Call: "ThingService/Create", SkipAuth: true, Body: map[string]any{"name": "w"}, Volatile: []string{"**.id"}, Expect: []chain.Expectation{{Path: "id", NotEmpty: true}}}}},
 			pick: h("", "", "masks id-shaped paths"), n: 2, want: []hit{{step: "create"}, {has: []string{`"**.id_product", "**.*_id" masks`, "verify already pairs ids across runs"}, lacks: []string{"created_at"}}}},
@@ -602,7 +602,7 @@ steps:
     - id: later
       call: AuthService/Login
       body: {username: u, password: p}
-`), pick: h(sevE, ""), want: []hit{h("", "", "carries 2 rules (gte, lte)"), h("", "", "${later.expires_at}"), {lacks: []string{"carries no rule"}}}},
+`), pick: h(sevE, ""), want: []hit{h("", "", "has 2 rules (gte, lte)"), h("", "", "${later.expires_at}"), {lacks: []string{"has no rule"}}}},
 		{name: "a rule whose value cannot fail", c: yamlChain(t, `apiVersion: shrt/v1
 name: vacuous
 steps:
@@ -613,15 +613,15 @@ steps:
           - {path: error.code, equals: OK}
           - {path: name, contains: ""}
           - {path: id, not_empty: false}
-`), want: []hit{h("", "", `expect on "name" is contains: ""`, "can never fail"), h("", "", `expect on "id" is not_empty: false`, "can never fail")}},
+`), want: []hit{h("", "", `expect name is contains: ""`, "every value contains"), h("", "", `expect id is not_empty: false`, "checks nothing")}},
 		{name: "no rule claimed missing on a vacuous value", c: yamlChain(t, "apiVersion: shrt/v1\nname: v\nsteps:\n  - id: fetch\n    call: ThingService/Fetch\n    body: {id: x}\n    expect:\n      - {path: name, contains: \"\"}\n"),
-			pick: h("", "", "carries no rule")},
+			pick: h("", "", "has no rule")},
 
 		{name: "a deprecated rpc and fields", cat: deprecatedCatalog(t), c: thing(create(map[string]any{"name": "w", "kind": "KIND_A"}, nil),
 			fetch(map[string]any{"id": "${create.id}"}, okCode, chain.Expectation{Path: "name", Equals: "w"})), pick: h("", chain.KindDeprecated), n: 3, want: []hit{
-			{sev: sevW, step: "fetch", has: []string{"calls shrt.test.v1.ThingService/Fetch, which the proto marks deprecated"}},
+			{sev: sevW, step: "fetch", has: []string{"calls shrt.test.v1.ThingService/Fetch, deprecated in the proto"}},
 			{sev: sevW, step: "create", has: []string{`body field "kind" is deprecated`}},
-			{sev: sevW, step: "fetch", has: []string{`expect on "name" reads a field`}}}},
+			{sev: sevW, step: "fetch", has: []string{`expect name reads a field deprecated`}}}},
 
 		{name: "every candidate key sorts alike", cat: shop, opts: hints, c: yamlChain(t, listOrderYAML), pick: h("", chain.KindIndistinctOrder), want: []hit{h("", "", "name, price_minor, sku")}},
 		{name: "only one key matches the asserted order", cat: shop, opts: hints, c: yamlChain(t, oneKeyOrderYAML), pick: h("", chain.KindIndistinctOrder)},
@@ -895,7 +895,7 @@ func TestUnreachableExpectationsAreTheLintErrorsRunRefuses(t *testing.T) {
 	c := twoStep("${create.id}", chain.Expectation{Path: "no_such_field", Equals: "x"}, chain.Expectation{Path: "name", Equals: "${create.nope}"})
 	c.Steps[0].Expect = nil
 	got := chain.UnreachableExpectations(c, cat)
-	if len(got) != 1 || got[0].Step != "fetch" || got[0].Kind != chain.KindUnreachable || !strings.Contains(got[0].Message, `expect on "no_such_field"`) {
+	if len(got) != 1 || got[0].Step != "fetch" || got[0].Kind != chain.KindUnreachable || !strings.Contains(got[0].Message, "expect no_such_field:") {
 		t.Fatalf("only the path the response has no field for, got %+v", got)
 	}
 	if !slices.ContainsFunc(chain.Lint(c, cat), func(i chain.Issue) bool { return i.Kind != chain.KindUnreachable && i.IsError() }) {

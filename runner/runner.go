@@ -314,6 +314,7 @@ type Options struct {
 	DryRun    bool
 	KeepGoing bool
 	Build     string
+	Refuse    []string
 
 	LatencySuspect func(stepID string, ms int64) bool
 	Remeasure      int
@@ -853,31 +854,67 @@ func failedPaths(results []chain.ExpectResult) []string {
 	return out
 }
 
-var stepProblem = regexp.MustCompile(`^step ("[^"]*" \(step \d+\))(.*)$`)
+var stepProblem = regexp.MustCompile(`^step "([^"]*)" \(step (\d+)\):? ?(.*)$`)
 
-func groupProblems(problems []string) []string {
-	var order []string
-	steps := map[string][]string{}
-	for _, p := range problems {
-		m := stepProblem.FindStringSubmatch(p)
-		if m == nil {
-			order = append(order, p)
+type Refusal struct {
+	Chain    string
+	Problems []string
+}
+
+func (e *Refusal) Lines() []string {
+	type problem struct {
+		at         int
+		step, text string
+	}
+	parsed := make([]problem, 0, len(e.Problems))
+	for _, p := range e.Problems {
+		if m := stepProblem.FindStringSubmatch(p); m != nil {
+			at, _ := strconv.Atoi(m[2])
+			parsed = append(parsed, problem{at, m[1], m[3]})
 			continue
 		}
-		if steps[m[2]] == nil {
-			order = append(order, m[2])
+		parsed = append(parsed, problem{text: p})
+	}
+	slices.SortStableFunc(parsed, func(a, b problem) int { return a.at - b.at })
+	var order []string
+	steps := map[string][]string{}
+	for _, p := range parsed {
+		if _, seen := steps[p.text]; !seen {
+			order = append(order, p.text)
+			steps[p.text] = []string{}
 		}
-		if !slices.Contains(steps[m[2]], m[1]) {
-			steps[m[2]] = append(steps[m[2]], m[1])
+		if p.step != "" && !slices.Contains(steps[p.text], p.step) {
+			steps[p.text] = append(steps[p.text], p.step)
 		}
 	}
 	out := make([]string, 0, len(order))
-	for _, key := range order {
-		if at := steps[key]; at != nil {
-			out = append(out, "step "+strings.Join(at, ", ")+key)
-			continue
+	for _, text := range order {
+		if at := steps[text]; len(at) > 0 {
+			text = "[" + strings.Join(at, ", ") + "] " + text
 		}
-		out = append(out, key)
+		out = append(out, text)
+	}
+	return out
+}
+
+func (e *Refusal) Error() string {
+	lines := e.Lines()
+	return fmt.Sprintf("chain %s: nothing was sent, %d chain error%s:\n  %s", e.Chain, len(lines), plural(len(lines)), strings.Join(lines, "\n  "))
+}
+
+func plural(n int) string {
+	if n == 1 {
+		return ""
+	}
+	return "s"
+}
+
+func problemSteps(problems []string) map[string]bool {
+	out := map[string]bool{}
+	for _, p := range problems {
+		if m := stepProblem.FindStringSubmatch(p); m != nil {
+			out[m[1]] = true
+		}
 	}
 	return out
 }
@@ -908,21 +945,11 @@ func (r *Runner) Run(ctx context.Context, c *chain.Chain, opts Options) (*Record
 	if _, given := opts.Vars[chain.RunTagVar]; !given && c.FreshRunTag() {
 		rec.Vars[chain.RunTagVar] = chain.NewRunTag()
 	}
-	if err := checkVarsSupplied(c, opts.Vars); err != nil {
-		return nil, err
-	}
-	for _, check := range []func(*chain.Chain) error{r.checkAuthProfiles, r.checkCalls, r.checkAuthEnv, r.checkHandWrittenAuth} {
-		if err := check(c); err != nil {
-			return nil, err
-		}
-	}
-	problems := slices.Concat(chain.VarRefProblems(rec.Vars), c.PreflightProblems(), c.ExportStepClashes(),
-		c.VarStructureProblems(rec.Vars), c.RedactedPinProblems(rec.Redacted))
+	problems := slices.Concat(missingVarProblems(c, opts.Vars), r.authProfileProblems(c), r.callProblems(c), r.authEnvProblems(c),
+		r.handAuthProblems(c), chain.VarRefProblems(rec.Vars), c.PreflightProblems(), c.ExportStepClashes(),
+		c.VarStructureProblems(rec.Vars), c.RedactedPinProblems(rec.Redacted), opts.Refuse)
 	if r.Catalog != nil {
 		problems = append(problems, c.ResponseRefProblems(r.Catalog)...)
-	}
-	if len(problems) > 0 {
-		return nil, fmt.Errorf("chain %q cannot run to the end, so nothing was sent: %s", c.Name, strings.Join(groupProblems(problems), "; "))
 	}
 	redactor := pathmask.NewRedactor(rec.Redacted)
 	scope := chain.NewScope(rec.Vars)
@@ -939,10 +966,12 @@ func (r *Runner) Run(ctx context.Context, c *chain.Chain, opts Options) (*Record
 		}
 	}
 	r.Auth.learnTokens(redactor)
-	if problems := r.requestProblems(c, rec.Vars); len(problems) > 0 {
-		return nil, errors.New(redactor.ScrubText(fmt.Sprintf("chain %q has a request that does not match its rpc, so nothing was sent "+
-			"(checked as -dry-run does, with synthetic values for references to earlier responses): %s",
-			c.Name, strings.Join(problems, "; "))))
+	problems = append(problems, r.requestProblems(c, rec.Vars, problemSteps(problems))...)
+	if len(problems) > 0 {
+		for i, p := range problems {
+			problems[i] = redactor.ScrubText(p)
+		}
+		return nil, &Refusal{Chain: c.Name, Problems: problems}
 	}
 
 	builds := &buildTracker{header: r.BuildHeader, label: rec.Build}
@@ -1077,7 +1106,7 @@ func (r *Runner) Run(ctx context.Context, c *chain.Chain, opts Options) (*Record
 	return rec, nil
 }
 
-func (r *Runner) requestProblems(c *chain.Chain, vars map[string]any) []string {
+func (r *Runner) requestProblems(c *chain.Chain, vars map[string]any, skip map[string]bool) []string {
 	if !r.ValidateInput || r.Catalog == nil {
 		return nil
 	}
@@ -1095,7 +1124,7 @@ func (r *Runner) requestProblems(c *chain.Chain, vars map[string]any) []string {
 			continue
 		}
 		resolved, err := scope.ResolveValue(orEmpty(step.Body))
-		if err == nil {
+		if err == nil && !skip[step.ID] {
 			if body, merr := json.Marshal(resolved); merr == nil {
 				if verr := r.Catalog.ValidateInput(method, body); verr != nil && !r.validWithoutSynthetic(scope, method, orEmpty(step.Body), vars) {
 					problems = append(problems, fmt.Sprintf("step %q (step %d): %v", step.ID, i+1, verr))
@@ -1940,46 +1969,48 @@ func (r *Runner) maskExports(exports map[string]any, steps []*chain.Step, redact
 	return out
 }
 
-func checkVarsSupplied(c *chain.Chain, supplied map[string]any) error {
-	missing := c.MissingVars(supplied)
-	if len(missing) == 0 {
-		return nil
-	}
-	refs := make([]string, 0, len(missing))
-	flags := make([]string, 0, len(missing))
-	for _, name := range missing {
+func missingVarProblems(c *chain.Chain, supplied map[string]any) []string {
+	out, names := []string{}, []string{}
+	for _, name := range c.MissingVars(supplied) {
 		if strings.ContainsAny(name, "+*/ ") {
-			return fmt.Errorf("chain %q: ${vars.%s} %s", c.Name, name, chain.NoArithmetic)
+			out = append(out, "${vars."+name+"} "+chain.NoArithmetic)
+			continue
 		}
-		refs = append(refs, "${vars."+name+"}")
-		flags = append(flags, "-var "+name+"=...")
+		names = append(names, name)
 	}
-	return fmt.Errorf("chain %q reads %s, which it does not declare under vars: and this run was not given, "+
-		"so nothing was sent: the run would have died at the first step reading one, after every step before "+
-		"it had already hit the backend. Supply %s, or declare a value under vars: in the chain",
-		c.Name, strings.Join(refs, ", "), strings.Join(flags, " "))
+	if len(names) > 0 {
+		out = append(out, chain.MissingVars(names))
+	}
+	return out
 }
 
-func (r *Runner) checkCalls(c *chain.Chain) error {
+func stepProblemf(step *chain.Step, i int, format string, args ...any) string {
+	return fmt.Sprintf("step %q (step %d): ", step.ID, i+1) + fmt.Sprintf(format, args...)
+}
+
+func (r *Runner) callProblems(c *chain.Chain) []string {
+	out := []string{}
 	if r.Catalog == nil {
-		return nil
+		return out
 	}
 	for i, step := range c.Steps {
+		if step == nil {
+			continue
+		}
 		method, err := r.Catalog.Lookup(step.Call)
 		if err != nil {
-			return fmt.Errorf("step %q (step %d) calls %q, which the catalog does not have, so nothing was sent: %w",
-				step.ID, i+1, step.Call, err)
-		}
-		if refusal := method.StreamRefusal(); refusal != "" {
-			return fmt.Errorf("step %q (step %d) cannot be sent, so nothing was sent: %s", step.ID, i+1, refusal)
+			out = append(out, stepProblemf(step, i, "%v", err))
+		} else if refusal := method.StreamRefusal(); refusal != "" {
+			out = append(out, stepProblemf(step, i, "%s", refusal))
 		}
 	}
-	return nil
+	return out
 }
 
-func (r *Runner) checkAuthEnv(c *chain.Chain) error {
+func (r *Runner) authEnvProblems(c *chain.Chain) []string {
+	out := []string{}
 	if r.AuthRoute == nil {
-		return nil
+		return out
 	}
 	byProfile := map[string]*AuthBinding{}
 	for _, b := range r.Auth {
@@ -1987,13 +2018,14 @@ func (r *Runner) checkAuthEnv(c *chain.Chain) error {
 			byProfile[b.Profile] = b
 		}
 	}
+	said := map[string]bool{}
 	for i, step := range c.Steps {
 		if step == nil || step.SkipAuth {
 			continue
 		}
 		profile, routed := r.AuthRoute(step)
 		b := byProfile[profile]
-		if !routed || b == nil {
+		if !routed || b == nil || said[profile] {
 			continue
 		}
 		unset, refs := []string{}, []string{}
@@ -2005,33 +2037,27 @@ func (r *Runner) checkAuthEnv(c *chain.Chain) error {
 		if len(unset) == 0 {
 			continue
 		}
-		return fmt.Errorf("step %q (step %d) runs under auth profile %q, whose login body reads %s, and env %s "+
-			"is not set, so nothing was sent: the login would fail at that step, after every step before it "+
-			"had already hit the backend. Export %s", step.ID, i+1, profile, strings.Join(refs, ", "),
-			strings.Join(unset, ", "), strings.Join(unset, ", "))
+		said[profile] = true
+		out = append(out, stepProblemf(step, i, "auth profile %q logs in with %s, and env %s is not set",
+			profile, strings.Join(refs, ", "), strings.Join(unset, ", ")))
 	}
-	return nil
+	return out
 }
 
-func (r *Runner) checkAuthProfiles(c *chain.Chain) error {
+func (r *Runner) authProfileProblems(c *chain.Chain) []string {
+	out := []string{}
 	have := r.Auth.profiles()
-	for _, step := range c.Steps {
-		if step.Auth == transport.InvalidTokenProfile && len(have) == 0 {
-			return fmt.Errorf("step %q asks for auth: %s, but the config declares no auth at all, so there is "+
-				"no header to carry a token in and the probe would silently send none. Use skip_auth: true "+
-				"for a no-token probe", step.ID, transport.InvalidTokenProfile)
+	for i, step := range c.Steps {
+		switch {
+		case step == nil:
+		case step.Auth == transport.InvalidTokenProfile && len(have) == 0:
+			out = append(out, stepProblemf(step, i, "auth: %s needs a config auth block to carry the token; use skip_auth: true for a no-token probe",
+				transport.InvalidTokenProfile))
+		case step.Auth != "" && step.Auth != transport.InvalidTokenProfile && !slices.Contains(have, step.Auth):
+			out = append(out, stepProblemf(step, i, "%s", chain.UnknownProfile(step.Auth, have)))
 		}
-		if step.Auth == "" || slices.Contains(have, step.Auth) || step.Auth == transport.InvalidTokenProfile {
-			continue
-		}
-		if len(have) == 0 {
-			return fmt.Errorf("step %q asks for auth profile %q, but the config declares no auth at all", step.ID, step.Auth)
-		}
-		sort.Strings(have)
-		return fmt.Errorf("step %q asks for auth profile %q, which the config does not define (have: %s)",
-			step.ID, step.Auth, strings.Join(have, ", "))
 	}
-	return nil
+	return out
 }
 
 func seedingNote(s seeding) string {

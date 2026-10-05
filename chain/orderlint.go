@@ -177,11 +177,9 @@ func indistinctOrderIssue(c *Chain, s *Step, list string, at map[int]string, pos
 		return Issue{}, false
 	}
 	return Issue{Step: s.ID, Severity: SeverityWarn, Kind: KindIndistinctOrder, Message: fmt.Sprintf(
-		"asserts the order of %s (items from %s, in that order), but %s all put those items in the same order, so the "+
-			"assertion cannot tell which key the backend sorts by: one sorting by the wrong key passes it too. Give the "+
-			"fixtures values that sort differently under each key, with three or more items (sku a < c < b, name b < a < c, "+
-			"price c < a < b, none in creation order)",
-		list, strings.Join(ids, ", "), strings.Join(agree, ", "))}, true
+		"%s order (from %s) is the same under %s, so a wrong sort key passes; use 3+ fixtures that sort apart under each key",
+		list, strings.Join(ids, ", "), strings.Join(agree, ", ")),
+		Why: "for example sku a < c < b, name b < a < c, price c < a < b, none in creation order"}, true
 }
 
 func mirrorsARequest(c *Chain, s *Step, at map[int]string, idx []int) bool {

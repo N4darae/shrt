@@ -1359,6 +1359,30 @@ func (r *Report) Text() string {
 	}
 	changedAt := r.valueChangedSteps()
 	idLines, idFolded := r.inconsistentIDGroups()
+	afterOf := func(c Change) string {
+		switch {
+		case !mixed || !c.WithInput:
+			return ""
+		case expectOnly:
+			return " (explained by the failed changed expectation)"
+		case r.OnlyChainChanged():
+			return " (explained by the chain change)"
+		}
+		return " (after different input)"
+	}
+	lineOf := func(c Change) string { return fmt.Sprintf("%s %s %s%s", c.Kind, c.Path, c.describe(), afterOf(c)) }
+	stepsOf, printed := map[string][]string{}, map[string]bool{}
+	for i, c := range r.Changes {
+		_, idLine := idLines[i]
+		_, renamed := renamedAt[i]
+		if idLine || idFolded[i] || renamed || renamedTo[i] || c.Kind == KindNotReached || c.Kind == KindStatus && changedAt[c.Step] ||
+			r.folded[c.Step] || r.underReordered(c) || c.StepOrder() {
+			continue
+		}
+		if line, step := lineOf(c), cmp.Or(c.Step, "-"); !slices.Contains(stepsOf[line], step) {
+			stepsOf[line] = append(stepsOf[line], step)
+		}
+	}
 	for i := 0; i < len(r.Changes); i++ {
 		c := r.Changes[i]
 		if line, ok := idLines[i]; ok {
@@ -1395,16 +1419,7 @@ func (r *Report) Text() string {
 			fmt.Fprintf(&b, "  [%s] renamed %s\n", step, fr.line())
 			continue
 		}
-		after := ""
-		if mixed && c.WithInput {
-			after = " (after different input)"
-			if r.OnlyChainChanged() {
-				after = " (explained by the chain change)"
-			}
-			if expectOnly {
-				after = " (explained by the failed changed expectation)"
-			}
-		}
+		after := afterOf(c)
 		if c.StepOrder() {
 			fmt.Fprintf(&b, "  [step order] moved: %s (was %v; now %v)%s\n", c.Moves(), c.Want, c.Got, after)
 			continue
@@ -1413,7 +1428,15 @@ func (r *Report) Text() string {
 			fmt.Fprintf(&b, "  [%s] %s %s%s\n", step, c.Kind, notSent(c.Detail), after)
 			continue
 		}
-		fmt.Fprintf(&b, "  [%s] %s %s %s%s\n", step, c.Kind, c.Path, c.describe(), after)
+		line := lineOf(c)
+		if printed[line] {
+			continue
+		}
+		printed[line] = true
+		if steps := stepsOf[line]; len(steps) > 0 {
+			step = strings.Join(steps, ", ")
+		}
+		fmt.Fprintf(&b, "  [%s] %s\n", step, line)
 	}
 	return strings.TrimRight(b.String(), "\n")
 }
