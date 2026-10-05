@@ -131,6 +131,11 @@ func (v *verification) load(ctx context.Context) error {
 	if v.name, v.resolved, err = e.namedChain(v.arg); err != nil {
 		return err
 	}
+	for _, f := range []string{v.arg, filepath.Join(scratchDir(e), v.arg+".yaml")} {
+		if c, err := chain.LoadFile(f); v.resolved == nil && err == nil {
+			v.name, v.resolved = c.Name, c
+		}
+	}
 	if err := e.knownChain(v.name); err != nil {
 		return err
 	}

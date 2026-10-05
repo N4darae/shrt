@@ -622,7 +622,7 @@ func sliceDescription(res *SliceResult) string {
 		}
 	}
 	if len(asked) > 0 {
-		fmt.Fprintf(&b, "Kept on request: %s.\n", ListSome(asked, 8))
+		fmt.Fprintf(&b, "Kept by -keep: %s.\n", ListSome(asked, 8))
 	}
 	for _, k := range res.Kept {
 		if k.Kind == KeepCheckpoint {

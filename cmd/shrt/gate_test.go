@@ -347,6 +347,14 @@ func TestVerifyOfARecordedRunOfAChainWithoutASafeSpotListsItsFailedExpectations(
 	if err == nil || !strings.Contains(err.Error(), "has no safe spot") || out != "" {
 		t.Fatalf("-json has no diff to emit, so it stays the error (%v):\n%s", err, out)
 	}
+	writeFile(t, ".shrt/scratch/cli-two-defects.yaml", string(mustRead(t, ".shrt/chains/cli-two-defects.yaml")))
+	removeFile(t, ".shrt/chains/cli-two-defects.yaml")
+	for _, ref := range []string{"cli-two-defects", ".shrt/scratch/cli-two-defects.yaml"} {
+		out = captureStdout(t, func() { err = runVerify(context.Background(), []string{ref, "-run", "latest"}) })
+		if !strings.Contains(out, "    [fetch] name want=gadget got=widget (and 1 more at fetch_again)\n") {
+			t.Fatalf("%s: a scratch chain the gate wrote, named or by path, lists its run's failed expectations too (%v):\n%s", ref, err, out)
+		}
+	}
 }
 
 func TestTheGateReadsAFoldedVerifyLineAsOneChangePerStep(t *testing.T) {

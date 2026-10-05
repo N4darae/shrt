@@ -300,7 +300,7 @@ func TestSlice(t *testing.T) {
 			if got := strings.Join(ids, " "); got != "seed:produces owner:produces noise:requested boom:target" {
 				t.Errorf("got %s", got)
 			}
-			if res.UnderIncluded || !strings.Contains(res.Chain.Description, "Kept on request: noise.") {
+			if res.UnderIncluded || !strings.Contains(res.Chain.Description, "Kept by -keep: noise.") {
 				t.Errorf("nothing under-included and the request recorded:\n%s", res.Chain.Description)
 			}
 		}},
