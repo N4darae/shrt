@@ -87,7 +87,7 @@ Habits that keep a chain re-runnable:
 | a value two steps share | one reference to the first step's request (`${steps.a.request.x}`) or one var |
 | a unique name per run | `inv-${vars.tag}-a`; an undeclared `tag` is fresh on every run |
 
-`plan` leaves `tag` undeclared, so no run needs `-var`. A duplicate refusal (PITFALLS §23) is
+`plan` leaves `tag` undeclared, so no run needs `-var`. A duplicate refusal (PITFALLS §15) is
 `fixture reused` or `fixture collision` (exit 3, re-run with a fresh `-var`), or
 `CHAIN DEFECT: the chain collides with itself` (exit 1: build the literal field from a var).
 
@@ -202,7 +202,7 @@ The unit of failure coverage is an `(rpc, code)` pair some run record observed. 
 ```
 
 - The refusal line on the envelope (or `transport.*`) makes lint treat the step as a probe;
-  without it lint demands every required field the probe omits (PITFALLS §18).
+  without it lint demands every required field the probe omits (PITFALLS §13).
 - No `allow_fail`: it only tolerates a transport refusal on a step with no expectations.
 - Assert `app_code` **and** `reason` for a named business failure; the envelope code alone is
   shared by many refusals.
@@ -255,7 +255,7 @@ re-sent (`auth_retry: resent`); a write refused with an already accepted token i
 `run` and `verify`: a token refused after it was accepted earlier in the run points at a restart
 (exit 3); the same refusal at the same step in the previous run, no restart shown, is a finding
 (exit 1). `WARNING: token refused <N>s after issue` well before the stated expiry: settle it with a
-chain of held reads (PITFALLS §49). A step with no answer (dropped connection, timeout) is exit 3,
+chain of held reads (PITFALLS §33). A step with no answer (dropped connection, timeout) is exit 3,
 a `FINDING` when the previous run did the same while later steps answered. A read with a server
 error is re-sent once and judged on the answer; one answered then or elsewhere is
 `FINDING: intermittent failure at <rpc>`. Writes are never re-sent.
@@ -338,7 +338,7 @@ has no term. Fill in this order; each step pays for the next:
 
 `before:` always attaches the plain rpc; to order aliases, list them in the dependent rpc's
 `needs:`. Leave `status: draft`: only a human sets `verified`. A codes-vs-contract cross-check needs
-a reader of your backend's error constructor, so it is a script you write (PITFALLS §37).
+a reader of your backend's error constructor, so it is a script you write (PITFALLS §24).
 
 ## 8. Run, hand off, verify
 
@@ -354,7 +354,7 @@ Step status: `ok`, `FAIL` (an expectation did not hold, or the proto rejects the
 chain before sending anything on a missing var, an unset env var, a reference to an undeclared
 field, a body the proto rejects, or an expect path the response message has no field for (`chain
 error ..., not a backend fault`, the `unreachable-path` lint error, so no suspect is named). A step refused in-band fails unless an
-expectation pins the verdict (PITFALLS §17). Read `error` as a fixture problem first (PITFALLS §4).
+expectation pins the verdict (PITFALLS §12). Read `error` as a fixture problem first (PITFALLS §2).
 
 **Run the chain twice, then propose:**
 
