@@ -517,6 +517,26 @@ func (p *Plan) contracted(lib *Library, isTarget func(*chain.Step) bool, skips .
 	}
 }
 
+func (p *Plan) withMethods(steps iter.Seq[*chain.Step]) iter.Seq2[*chain.Step, *catalog.Method] {
+	return func(yield func(*chain.Step, *catalog.Method) bool) {
+		for st := range steps {
+			if m, err := p.cat.Lookup(st.Call); err == nil && !yield(st, m) {
+				return
+			}
+		}
+	}
+}
+
+func (p *Plan) called(skip func(*chain.Step) bool) iter.Seq2[*chain.Step, *catalog.Method] {
+	return p.withMethods(func(yield func(*chain.Step) bool) {
+		for _, st := range p.Chain.Steps {
+			if !skip(st) && !yield(st) {
+				return
+			}
+		}
+	})
+}
+
 func isRead(st *chain.Step) bool { return chain.IsReadOnlyCall(st.Call) }
 
 func isWrite(st *chain.Step) bool { return !chain.IsReadOnlyCall(st.Call) }

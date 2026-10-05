@@ -111,51 +111,46 @@ func SingleItemRepeats(chains []*chain.Chain, cat *catalog.Catalog) []SingleItem
 		chains   map[string]bool
 	}
 	seen := map[string]*tally{}
-	for _, c := range chains {
-		if c == nil {
+	for c, s := range chainSteps(chains) {
+		if len(s.Body) == 0 {
 			continue
 		}
-		for _, s := range c.Steps {
-			if s == nil || len(s.Body) == 0 {
-				continue
-			}
-			m, err := cat.Lookup(s.Call)
-			if err != nil {
-				continue
-			}
-			rpc := strings.TrimPrefix(m.Procedure(), "/")
-			countRepeats(s.Body, catalog.DescribeMessage(m.Input()).Fields, "", func(path string, list []any, unknown bool) {
-				k := rpc + "\x00" + path
-				t := seen[k]
-				if t == nil {
-					t = &tally{chains: map[string]bool{}}
-					seen[k] = t
-				}
-				t.unknown = t.unknown || unknown
-				t.most = max(t.most, len(list))
-				t.chains[c.Name] = true
-				if len(list) < 2 {
-					return
-				}
-				applied := []any{}
-				for i, item := range list {
-					if !itemRefused(s, i) {
-						applied = append(applied, item)
-					}
-				}
-				repeat, _ := repeatedResource(c, s, applied)
-				_, sourced := repeatedResource(c, s, list)
-				t.repeat = t.repeat || (repeat && effectOutcome(s) == outcomeSuccess)
-				t.sourced = t.sourced || sourced
-				if shared, ok := sharedResource(c, s, list); ok {
-					if t.resource == "" {
-						t.resource = shared
-					}
-					return
-				}
-				t.distinct = true
-			})
+		m, err := cat.Lookup(s.Call)
+		if err != nil {
+			continue
 		}
+		rpc := strings.TrimPrefix(m.Procedure(), "/")
+		countRepeats(s.Body, catalog.DescribeMessage(m.Input()).Fields, "", func(path string, list []any, unknown bool) {
+			k := rpc + "\x00" + path
+			t := seen[k]
+			if t == nil {
+				t = &tally{chains: map[string]bool{}}
+				seen[k] = t
+			}
+			t.unknown = t.unknown || unknown
+			t.most = max(t.most, len(list))
+			t.chains[c.Name] = true
+			if len(list) < 2 {
+				return
+			}
+			applied := []any{}
+			for i, item := range list {
+				if !itemRefused(s, i) {
+					applied = append(applied, item)
+				}
+			}
+			repeat, _ := repeatedResource(c, s, applied)
+			_, sourced := repeatedResource(c, s, list)
+			t.repeat = t.repeat || (repeat && effectOutcome(s) == outcomeSuccess)
+			t.sourced = t.sourced || sourced
+			if shared, ok := sharedResource(c, s, list); ok {
+				if t.resource == "" {
+					t.resource = shared
+				}
+				return
+			}
+			t.distinct = true
+		})
 	}
 	out := []SingleItemRepeat{}
 	for _, k := range chain.SortedKeys(seen) {

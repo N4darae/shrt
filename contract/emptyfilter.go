@@ -85,37 +85,32 @@ func EmptyFilterGaps(chains []*chain.Chain, lib *Library, cat *catalog.Catalog) 
 		chains map[string]bool
 	}
 	seen := map[string]*tally{}
-	for _, c := range chains {
-		if c == nil {
+	for c, s := range chainSteps(chains) {
+		if effectOutcome(s) != outcomeSuccess {
 			continue
 		}
-		for _, s := range c.Steps {
-			if s == nil || effectOutcome(s) != outcomeSuccess {
+		m, err := cat.Lookup(s.Call)
+		if err != nil || !chain.IsReadOnlyCall(m.FullName) || repeatedMessageField(m) == nil {
+			continue
+		}
+		rc, ok := lib.Get(m.FullName)
+		if !ok {
+			continue
+		}
+		for _, f := range catalog.DescribeMessage(m.Input()).Fields {
+			if f.Kind != "string" || f.Repeated || !EmptyMeansAll(rc, f.Name) {
 				continue
 			}
-			m, err := cat.Lookup(s.Call)
-			if err != nil || !chain.IsReadOnlyCall(m.FullName) || repeatedMessageField(m) == nil {
-				continue
+			k := m.FullName + "\x00" + f.Name
+			t := seen[k]
+			if t == nil {
+				t = &tally{chains: map[string]bool{}}
+				seen[k] = t
 			}
-			rc, ok := lib.Get(m.FullName)
-			if !ok {
-				continue
-			}
-			for _, f := range catalog.DescribeMessage(m.Input()).Fields {
-				if f.Kind != "string" || f.Repeated || !EmptyMeansAll(rc, f.Name) {
-					continue
-				}
-				k := m.FullName + "\x00" + f.Name
-				t := seen[k]
-				if t == nil {
-					t = &tally{chains: map[string]bool{}}
-					seen[k] = t
-				}
-				t.chains[c.Name] = true
-				key, sent := namecase.LookupKey(s.Body, f.Name)
-				if text, _ := s.Body[key].(string); !sent || text == "" {
-					t.empty = true
-				}
+			t.chains[c.Name] = true
+			key, sent := namecase.LookupKey(s.Body, f.Name)
+			if text, _ := s.Body[key].(string); !sent || text == "" {
+				t.empty = true
 			}
 		}
 	}

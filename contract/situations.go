@@ -2,6 +2,7 @@ package contract
 
 import (
 	"fmt"
+	"iter"
 	"slices"
 	"sort"
 	"strconv"
@@ -213,4 +214,19 @@ func itemCounts(ns []int, list string) string {
 		return text
 	}
 	return text + " " + pluralVerb(ns[len(ns)-1], strings.TrimSuffix(list, "s"), list)
+}
+
+func chainSteps(chains []*chain.Chain) iter.Seq2[*chain.Chain, *chain.Step] {
+	return func(yield func(*chain.Chain, *chain.Step) bool) {
+		for _, c := range chains {
+			if c == nil {
+				continue
+			}
+			for _, s := range c.Steps {
+				if s != nil && !yield(c, s) {
+					return
+				}
+			}
+		}
+	}
 }

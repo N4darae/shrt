@@ -253,14 +253,7 @@ func isRefusalStep(st *chain.Step) bool {
 }
 
 func (p *Plan) echoNumbers() {
-	for _, st := range p.Chain.Steps {
-		if chain.IsReadOnlyCall(st.Call) || isRefusalStep(st) {
-			continue
-		}
-		m, err := p.cat.Lookup(st.Call)
-		if err != nil {
-			continue
-		}
+	for st, m := range p.called(func(st *chain.Step) bool { return chain.IsReadOnlyCall(st.Call) || isRefusalStep(st) }) {
 		car := singleCarrier(m)
 		if car == nil {
 			continue

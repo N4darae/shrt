@@ -67,11 +67,7 @@ func (p *Plan) probeDenials(lib *Library, isTarget func(*chain.Step) bool) {
 		return
 	}
 	tokenDone := map[string]bool{}
-	for st := range p.targets(isTarget, p.loginStep, skipsAuth) {
-		m, err := p.cat.Lookup(st.Call)
-		if err != nil {
-			continue
-		}
+	for st, m := range p.withMethods(p.targets(isTarget, p.loginStep, skipsAuth)) {
 		group := []*chain.Step{}
 		said := []string{}
 		if c, ok := lib.Get(st.Call); ok && !m.ServerStreaming && len(c.RequiresRole) > 0 && !c.DeclaresNoRole() && !IsTodo(strings.Join(c.RequiresRole, " ")) {

@@ -19,11 +19,7 @@ var (
 )
 
 func (p *Plan) probeLogin(lib *Library, isTarget func(*chain.Step) bool) {
-	for st := range p.targets(isTarget, func(st *chain.Step) bool { return !p.isLogin(st.Call) }) {
-		m, err := p.cat.Lookup(st.Call)
-		if err != nil {
-			continue
-		}
+	for st, m := range p.withMethods(p.targets(isTarget, func(st *chain.Step) bool { return !p.isLogin(st.Call) })) {
 		c, _ := lib.Get(m.FullName)
 		said := []string{}
 		f, declared := credentialFailure(lib, m.FullName)
@@ -260,25 +256,17 @@ func LoginFailureGaps(chains []*chain.Chain, lib *Library, cat *catalog.Catalog,
 }
 
 func pinnedByAChain(chains []*chain.Chain, cat *catalog.Catalog, rpc string, f Failure) bool {
-	for _, c := range chains {
-		if c == nil {
+	for _, s := range chainSteps(chains) {
+		if m, err := cat.Lookup(s.Call); err != nil || m.FullName != rpc {
 			continue
 		}
-		for _, s := range c.Steps {
-			if s == nil {
+		for _, e := range s.Expect {
+			if e.Equals == nil {
 				continue
 			}
-			if m, err := cat.Lookup(s.Call); err != nil || m.FullName != rpc {
-				continue
-			}
-			for _, e := range s.Expect {
-				if e.Equals == nil {
-					continue
-				}
-				v := fmt.Sprint(e.Equals)
-				if (f.Reason != "" && v == f.Reason) || (f.Code != 0 && v == fmt.Sprint(f.Code)) || (f.ConnectCode != "" && f.Code == 0 && e.Path == "transport.code" && v == f.ConnectCode) {
-					return true
-				}
+			v := fmt.Sprint(e.Equals)
+			if (f.Reason != "" && v == f.Reason) || (f.Code != 0 && v == fmt.Sprint(f.Code)) || (f.ConnectCode != "" && f.Code == 0 && e.Path == "transport.code" && v == f.ConnectCode) {
+				return true
 			}
 		}
 	}
