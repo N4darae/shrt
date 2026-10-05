@@ -881,30 +881,23 @@ func TestCLISliceLatestRefusesWhenTheNewestRunDidNotReachTheStep(t *testing.T) {
 	}
 }
 
-func TestWhichNamesTheUpstreamStepAndTheSliceThatEvaluatesIt(t *testing.T) {
+func TestWhichNamesTheUpstreamStepABlockedReadWaitsOn(t *testing.T) {
 	blockedWorkspace(t)
 	out := whichOut(t, "-rpc", "ThingService/Fetch")
-	for _, want := range []string{"not evaluated: it reads step fetch, which failed in run", "shrt chain slice cli-blocked -step fetch_again -run ", " -verify"} {
-		if !strings.Contains(out, want) {
-			t.Fatalf("want %q in:\n%s", want, out)
-		}
+	if line := whichLine(t, out, "fetch_again"); line != "  fetch_again  asserts OK  FAILED name not evaluated: reads failed step fetch" {
+		t.Fatalf("a read held back by a failed step names that step: %q in:\n%s", line, out)
 	}
 }
 
-func TestCLIWhichSeesTransportRefusedStepsAndPrintsEvidenceOnItsOwnLine(t *testing.T) {
+func TestCLIWhichSeesTransportRefusedSteps(t *testing.T) {
 	round2Workspace(t)
 	out := whichOut(t, "-code", "invalid_argument")
-	if !strings.Contains(whichLine(t, out, "blank"), "got invalid_argument, step passed") {
-		t.Fatalf("-code must find transport.code and the refused run did reach the step:\n%s", out)
+	if line := whichLine(t, out, "blank"); line != "  blank" {
+		t.Fatalf("-code must find transport.code and the refused run did reach the step, so the row has no verdict:\n%s", out)
 	}
 	out = whichOut(t, "-rpc", "ThingService/Create")
-	if strings.Contains(out, "no local run reached it") || !strings.Contains(out, "-var batch=<fresh>") {
+	if strings.Contains(out, "no run reached it") || strings.Contains(out, " got ") || !strings.Contains(out, "-var batch=<fresh>") {
 		t.Fatalf("a transport-refused step that passed was reached, and its reproduce line asks for a fresh batch:\n%s", out)
-	}
-	for _, l := range strings.Split(out, "\n") {
-		if strings.Contains(l, " got ") && !strings.HasPrefix(l, "    run ") {
-			t.Errorf("run evidence goes on its own line: %q", l)
-		}
 	}
 }
 

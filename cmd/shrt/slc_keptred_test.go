@@ -50,13 +50,13 @@ steps:
 			plain = line
 		}
 	}
-	if !strings.HasSuffix(red, " 1 step(s)") || strings.Contains(red, "reach Fetch") {
+	if !strings.HasSuffix(red, " 1 step") || strings.Contains(red, "reach Fetch") {
 		t.Fatalf("a line ends at the step count; -long prints the description:\n%s", out)
 	}
 	if !strings.HasPrefix(red, " R ") || strings.HasPrefix(plain, " R ") {
 		t.Fatalf("a chain kept red is marked R, one that is not is not:\n%s", out)
 	}
-	if !strings.Contains(out, "R = kept red") {
+	if !strings.Contains(out, "; R kept red") {
 		t.Fatalf("the legend explains the mark:\n%s", out)
 	}
 	out = captureStdout(t, func() { err = chainList([]string{"-json"}) })

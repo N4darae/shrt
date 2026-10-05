@@ -22,10 +22,10 @@ type Situation struct {
 func (s Situation) String() string {
 	parts := []string{}
 	if s.State != "" {
-		parts = append(parts, fmt.Sprintf("on %s in %s", withArticle(s.Carrier), s.State))
+		parts = append(parts, "on "+s.State+" "+s.Carrier)
 	}
 	if s.List != "" {
-		parts = append(parts, fmt.Sprintf("%s of %s", s.List, itemCount(s.Items)))
+		parts = append(parts, itemCounts([]int{s.Items}, s.List))
 	}
 	return strings.Join(parts, ", ")
 }

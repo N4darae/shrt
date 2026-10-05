@@ -158,67 +158,45 @@ func chainList(args []string) error {
 	for _, b := range broken {
 		fmt.Printf("! %s\n", b)
 	}
-	nameW := 0
+	shown := map[byte]bool{}
 	for _, r := range rows {
-		if n := len([]rune(r.Name)); n > nameW {
-			nameW = n
-		}
-	}
-	for _, r := range rows {
-		mark := " "
+		mark, waits := []byte("   "), ""
 		if r.SafeSpot {
-			mark = "*"
+			mark[0] = '*'
 		}
 		if r.Proposed {
-			mark = "?"
+			mark[0] = '?'
 		}
 		if r.KeptRed {
-			mark += "R"
-		} else {
-			mark += " "
+			mark[1] = 'R'
 		}
-		waits := ""
 		if r.Waits != "" {
-			mark, waits = mark+"W", "  waits "+r.Waits
-		} else {
-			mark += " "
+			mark[2], waits = 'W', ", waits "+r.Waits
 		}
-		if *long {
-			fmt.Printf("%s %s  %d step(s)%s  %s\n", mark, r.Name, r.Steps, waits, r.Path)
-			for _, line := range descriptionLines(r.Description) {
-				if line == "" {
-					fmt.Println()
-					continue
-				}
-				fmt.Printf("    %s\n", line)
+		for _, m := range mark {
+			shown[m] = true
+		}
+		line := fmt.Sprintf("%s %s  %s%s", mark, r.Name, plural(r.Steps, "step"), waits)
+		if !*long {
+			fmt.Println(line)
+			if r.File != "" {
+				fmt.Printf("    file %s: its name: field differs; see shrt chain lint\n", r.File)
 			}
-			fmt.Println()
 			continue
 		}
-		fmt.Printf("%s %-*s %3d step(s)%s\n", mark, nameW, r.Name, r.Steps, waits)
-		if r.File != "" {
-			fmt.Printf("  %-*s  (file %s: its name: differs from its file name; chain lint says how to make them agree)\n", nameW, "", r.File)
+		fmt.Printf("%s  %s\n", line, r.Path)
+		for _, line := range descriptionLines(r.Description) {
+			fmt.Println(strings.TrimRight("    "+line, " "))
+		}
+		fmt.Println()
+	}
+	legend := []string{plural(len(rows), "chain")}
+	for _, m := range []string{"* safe spot", "? proposal awaits approval", "R kept red", "W waits by design (gate -repro skips it; shrt gate <chain> runs it)"} {
+		if shown[m[0]] {
+			legend = append(legend, m)
 		}
 	}
-	shown := map[string]bool{}
-	for _, r := range rows {
-		shown["*"] = shown["*"] || r.SafeSpot && !r.Proposed
-		shown["?"] = shown["?"] || r.Proposed
-		shown["R"] = shown["R"] || r.KeptRed
-		shown["W"] = shown["W"] || r.Waits != ""
-	}
-	legend := []string{}
-	for _, m := range []struct{ mark, means string }{{"*", "has a safe spot"}, {"?", "a proposal awaits approval"}, {"R", "kept red"},
-		{"W", "waits by design (shrt gate -repro leaves it out, shrt gate <chain> runs it)"}} {
-		if shown[m.mark] {
-			legend = append(legend, m.mark+" = "+m.means)
-		}
-	}
-	fmt.Printf("\n%d chain(s)", len(rows))
-	if len(legend) > 0 {
-		fmt.Print("; " + strings.Join(legend, ", "))
-	}
-	fmt.Println()
+	fmt.Println(strings.Replace(strings.Join(legend, ", "), ",", ";", 1))
 	return nil
 }
 

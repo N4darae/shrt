@@ -38,17 +38,12 @@ func latestRunID(t *testing.T, chainName string) string {
 
 func whichLine(t *testing.T, out, step string) string {
 	t.Helper()
-	lines := strings.Split(out, "\n")
-	for i, l := range lines {
-		if !strings.Contains(l, " "+step+" ") || !strings.Contains(l, "OBSERVED") {
-			continue
+	for _, l := range strings.Split(out, "\n") {
+		if l == "  "+step || strings.HasPrefix(l, "  "+step+"  ") {
+			return l
 		}
-		if !strings.Contains(l, "run ") && i+1 < len(lines) {
-			return l + " " + strings.TrimSpace(lines[i+1])
-		}
-		return l
 	}
-	t.Fatalf("no OBSERVED line for step %s in:\n%s", step, out)
+	t.Fatalf("no row for step %s in:\n%s", step, out)
 	return ""
 }
 
@@ -86,8 +81,8 @@ func TestCLIWhichCitesTheRunsThatReachedTheStep(t *testing.T) {
 	fixCmd(t, "run", "cli-refusal-flow", "-quiet", "-keep-going")
 	stopped := latestRunID(t, "cli-refusal-flow")
 	out := whichOut(t, "-code", "PERMISSION_DENIED")
-	if !strings.Contains(whichLine(t, out, "outsider_reads"), "run "+reached+" got PERMISSION_DENIED, step passed") || !strings.Contains(out, "newest run "+stopped+" did not reach it") {
-		t.Errorf("the only run that reached the step is the evidence, and the newest did not reach it:\n%s", out)
+	if line := whichLine(t, out, "outsider_reads"); line != "  outsider_reads  newest run: step skipped" || reached == stopped {
+		t.Errorf("the only run that reached the step passed it, so only the newest run, which did not reach it, is named:\n%s", out)
 	}
 	f.set(func(f *fixThing) { f.createCode, f.fetchCode = "", "" })
 	if _, err := fixCmd(t, "run", "cli-refusal-flow", "-quiet"); err == nil {
@@ -95,22 +90,21 @@ func TestCLIWhichCitesTheRunsThatReachedTheStep(t *testing.T) {
 	}
 	newest := latestRunID(t, "cli-refusal-flow")
 	out = whichOut(t, "-code", "PERMISSION_DENIED")
-	if !strings.Contains(whichLine(t, out, "outsider_reads"), "run "+newest+" got OK, step FAILED") ||
-		!strings.Contains(out, "failed: error.code want=PERMISSION_DENIED got=OK") || !strings.Contains(out, "1 with a local run record that reached a matching step") {
+	if line := whichLine(t, out, "outsider_reads"); line != "  outsider_reads  FAILED error.code want=PERMISSION_DENIED got=OK" || newest == "" {
 		t.Errorf("the newest reaching run got OK and failed, and that is the evidence:\n%s", out)
 	}
 	if raw := whichOut(t, "-code", "PERMISSION_DENIED", "-json"); !strings.Contains(raw, `"observed": {`) || !strings.Contains(raw, `"holds": false`) {
 		t.Errorf("-json carries the contradicting observation:\n%s", raw)
 	}
 	line := whichLine(t, whichOut(t, "-rpc", "ThingService/Fetch"), "outsider_reads")
-	if observed := line[strings.Index(line, "run "):]; strings.Contains(observed, "PERMISSION_DENIED") || !strings.Contains(observed, "OK") || !strings.Contains(observed, "FAILED") {
-		t.Errorf("the observed part shows the recorded code, not the asserted one: %q", line)
+	if observed := line[strings.Index(line, "FAILED"):]; !strings.Contains(observed, "got=OK") {
+		t.Errorf("the observed part shows the recorded code: %q", line)
 	}
 	if _, err := fixCmd(t, "run", "cli-thing-flow", "-quiet"); err != nil {
 		t.Fatalf("shrt run: %v", err)
 	}
-	if line := whichLine(t, whichOut(t, "-rpc", "ThingService/Fetch"), "fetch"); strings.Contains(line, "FAILED") || !strings.Contains(line, "passed") {
-		t.Errorf("a step that passed reads as passed: %q", line)
+	if line := whichLine(t, whichOut(t, "-rpc", "ThingService/Fetch"), "fetch"); line != "  fetch  asserts OK" {
+		t.Errorf("a step that passed says no verdict: %q", line)
 	}
 	appCode := `apiVersion: shrt/v1
 name: cli-app-code
@@ -127,8 +121,7 @@ steps:
 	f.set(func(f *fixThing) { f.fetchCode = "PERMISSION_DENIED" })
 	fixCmd(t, "run", "cli-app-code", "-quiet")
 	writeFile(t, ".shrt/chains/cli-app-code.yaml", appCode+"          - path: error.details.0.app_code\n            equals: 1304\n")
-	if line := whichLine(t, whichOut(t, "-rpc", "ThingService/Fetch"), "refused"); !strings.Contains(line, "asserts 1304") ||
-		strings.Contains(line, "got PERMISSION_DENIED,") || !strings.Contains(line, "nothing at error.details.0.app_code") {
+	if line := whichLine(t, whichOut(t, "-rpc", "ThingService/Fetch"), "refused"); line != "  refused  asserts 1304  got PERMISSION_DENIED at error.code" {
 		t.Errorf("got is read from the path of the shown assertion: %q", line)
 	}
 	writeFile(t, ".shrt/chains/cli-writes.yaml", `apiVersion: shrt/v1
@@ -152,13 +145,8 @@ steps:
 `)
 	fixCmd(t, "run", "cli-writes", "-quiet")
 	out = whichOut(t, "-code", "OK")
-	for _, want := range []string{
-		"reproduce: shrt chain slice cli-writes -step create_c  (2 of 3 steps)",
-		"if that does not reproduce: shrt chain slice cli-writes -step create_c -keep writes  (3 of 3 steps)",
-	} {
-		if !strings.Contains(out, want) {
-			t.Errorf("the plain closure comes first when it keeps every related write: missing %q in:\n%s", want, out)
-		}
+	if want := "\nshrt chain slice cli-writes -step create_c  (2 of 3 steps; if it does not reproduce, add -keep writes)\n"; !strings.Contains(out, want) {
+		t.Errorf("the plain closure comes first when it keeps every related write: missing %q in:\n%s", want, out)
 	}
 }
 
@@ -190,7 +178,7 @@ steps:
 		t.Fatalf("shrt run: %v", err)
 	}
 	out := whichOut(t, "-code", "1603")
-	if !strings.Contains(out, "denied  asserts NotYours") || !strings.Contains(out, "asserts 1603, or only the reason NotYours") {
+	if !strings.Contains(out, "  denied  asserts only reason NotYours\n") || !strings.Contains(out, "asserting 1603 or NotYours") {
 		t.Errorf("the step asserts the sibling detail of the same refusal, so which lists it:\n%s", out)
 	}
 	writeFile(t, ".shrt/chains/cli-which-baselined.yaml", strings.Replace(denied,
@@ -237,15 +225,22 @@ steps:
 }
 
 func TestWhichNamesTheFailingExpectationOnTheObservedLine(t *testing.T) {
-	line := whichSeenCell(&chain.WhichEvidence{
+	none := func(string, string) string { return "" }
+	h := chain.WhichChain{Chain: "c", Runs: 1}
+	m := chain.WhichStep{Step: "s", Asserts: []chain.CodeAssertion{{Path: "status.code", Value: "SUCCESS"}}, Observed: &chain.WhichEvidence{
 		Run: "r1", Status: runner.StatusFailed, Code: "SUCCESS", Path: "status.code", Asserted: "status.code",
 		Failures: []chain.ExpectResult{{Path: "customer.name", Rule: "equals", Want: "idem i4", Got: "changed"}},
-	})
-	if !strings.Contains(line, "got SUCCESS") || !strings.Contains(line, "FAILED") || !strings.Contains(line, "customer.name") {
+	}}
+	if line := whichRow(h, m, chain.WhichQuery{}, "SUCCESS", none); line != "s  FAILED customer.name want=\"idem i4\" got=changed" && line != "s  FAILED customer.name want=idem i4 got=changed" {
 		t.Fatalf("a step that got the asserted code yet FAILED says which expectation failed: %q", line)
 	}
-	if passed := whichSeenCell(&chain.WhichEvidence{Run: "r1", Status: runner.StatusPassed, Code: "SUCCESS", Path: "status.code", Asserted: "status.code"}); strings.Contains(passed, "on ") {
-		t.Fatalf("a passing step names no failure: %q", passed)
+	m.Observed = &chain.WhichEvidence{Run: "r1", Status: runner.StatusPassed, Code: "SUCCESS", Path: "status.code", Asserted: "status.code"}
+	if line := whichRow(h, m, chain.WhichQuery{}, "SUCCESS", none); line != "s" {
+		t.Fatalf("a passing step asserting the usual code is its step id alone: %q", line)
+	}
+	m.Observed = nil
+	if line := whichRow(h, m, chain.WhichQuery{}, "OK", none); line != "s  asserts SUCCESS  no run reached it" {
+		t.Fatalf("a step no run reached says so: %q", line)
 	}
 }
 
