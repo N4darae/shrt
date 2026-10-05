@@ -253,7 +253,7 @@ func (r AuthRouter) byName(name string) *AuthProfile {
 }
 
 func (r AuthRouter) Resolve(call *Call) (*AuthProfile, error) {
-	if callSkipsAuth(call) {
+	if skip, _ := call.Meta["skip_auth"].(bool); skip {
 		return nil, nil
 	}
 	if name := callAuthProfile(call); name != "" && name != InvalidTokenProfile {
@@ -444,11 +444,6 @@ func sendInvalidToken(ctx context.Context, next Handler, call *Call, profile *Au
 	return next(ctx, call)
 }
 
-func callSkipsAuth(call *Call) bool {
-	b, _ := call.Meta["skip_auth"].(bool)
-	return b
-}
-
 func callAuthProfile(call *Call) string {
 	s, _ := call.Meta["auth"].(string)
 	return strings.TrimSpace(s)
@@ -495,13 +490,13 @@ func EnvelopeCodeReader(path string) func([]byte) string {
 }
 
 func lookupString(root map[string]any, path string) (string, bool) {
-	v, _ := lookup(root, path)
+	v := lookup(root, path)
 	s, ok := v.(string)
 	return s, ok
 }
 
 func lookupInt(root map[string]any, path string) (int64, bool) {
-	v, _ := lookup(root, path)
+	v := lookup(root, path)
 	switch t := v.(type) {
 	case float64:
 		return int64(t), true
@@ -513,23 +508,20 @@ func lookupInt(root map[string]any, path string) (int64, bool) {
 	}
 }
 
-func lookup(root map[string]any, path string) (any, bool) {
+func lookup(root map[string]any, path string) any {
 	var cur any = root
 	for _, seg := range strings.Split(path, ".") {
 		if seg == "" {
 			continue
 		}
-		m, ok := cur.(map[string]any)
-		if !ok {
-			return nil, false
-		}
+		m, _ := cur.(map[string]any)
 		key, ok := namecase.LookupKey(m, seg)
 		if !ok {
-			return nil, false
+			return nil
 		}
 		cur = m[key]
 	}
-	return cur, true
+	return cur
 }
 
 func excerpt(raw []byte, max int) string {

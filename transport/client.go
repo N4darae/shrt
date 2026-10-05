@@ -105,7 +105,7 @@ func New(opts Options) *Client {
 		}
 	}
 	shallow := *hc
-	shallow.CheckRedirect = refuseRedirect
+	shallow.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	hc = &shallow
 	c := &Client{
 		baseURL:  strings.TrimRight(opts.BaseURL, "/"),
@@ -142,7 +142,7 @@ func (c *Client) Raw(ctx context.Context, call *Call) (*Result, error) {
 func (c *Client) BaseURL() string { return c.baseURL }
 
 func (c *Client) send(ctx context.Context, call *Call) (*Result, error) {
-	url := c.baseURL + normalizeProcedure(call.Procedure)
+	url := c.baseURL + "/" + strings.TrimPrefix(call.Procedure, "/")
 	body := call.Body
 	if len(body) == 0 {
 		body = []byte("{}")
@@ -244,10 +244,6 @@ func (c *Client) failed(ctx context.Context, what string, err error, sent bool) 
 
 var errResendRefused = errors.New("the request had already been sent and shrt never re-sends one")
 
-func refuseResend() (io.ReadCloser, error) {
-	return nil, errResendRefused
-}
-
 type noResend struct {
 	next http.RoundTripper
 }
@@ -259,14 +255,10 @@ func (n noResend) RoundTrip(req *http.Request) (*http.Response, error) {
 	}
 	if req.Body != nil && req.Body != http.NoBody {
 		clone := *req
-		clone.GetBody = refuseResend
+		clone.GetBody = func() (io.ReadCloser, error) { return nil, errResendRefused }
 		req = &clone
 	}
 	return next.RoundTrip(req)
-}
-
-func refuseRedirect(*http.Request, []*http.Request) error {
-	return http.ErrUseLastResponse
 }
 
 func decodeError(status int, raw []byte) *Error {
@@ -275,13 +267,6 @@ func decodeError(status int, raw []byte) *Error {
 		return &Error{Code: fmt.Sprintf("http_%d", status), Message: strings.TrimSpace(string(raw))}
 	}
 	return e
-}
-
-func normalizeProcedure(p string) string {
-	if !strings.HasPrefix(p, "/") {
-		return "/" + p
-	}
-	return p
 }
 
 func frame(flags byte, payload []byte) []byte {
@@ -327,7 +312,7 @@ func readStream(r io.Reader, want int) (*Result, error) {
 			Error *Error `json:"error"`
 		}
 		if err := json.Unmarshal(payload, &end); err == nil && end.Error != nil && end.Error.Code != "" {
-			res.Error, res.Status = end.Error, connectStatus(end.Error.Code)
+			res.Error, res.Status = end.Error, cmp.Or(connectStatuses[end.Error.Code], http.StatusInternalServerError)
 			res.Body, _ = json.Marshal(end.Error)
 		}
 		return done(), nil
@@ -340,7 +325,3 @@ var connectStatuses = map[string]int{"canceled": 499, "invalid_argument": http.S
 	"already_exists": http.StatusConflict, "aborted": http.StatusConflict, "permission_denied": http.StatusForbidden,
 	"resource_exhausted": http.StatusTooManyRequests, "unimplemented": http.StatusNotImplemented,
 	"unavailable": http.StatusServiceUnavailable, "unauthenticated": http.StatusUnauthorized}
-
-func connectStatus(code string) int {
-	return cmp.Or(connectStatuses[code], http.StatusInternalServerError)
-}
