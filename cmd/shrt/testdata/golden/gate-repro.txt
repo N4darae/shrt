@@ -4,10 +4,22 @@ FAIL shelf  get_product (GetProduct) product.qty_on_hand want=5 got=0; suspect w
 failures by suspect rpc:
   AddStock product.qty_on_hand: 1 step in 1 chain, e.g. shelf get_product; write add_stock
     settled on the write add_stock: ListProducts read product.qty_on_hand=0, as GetProduct did, where it answered 5
-    repro: shrt run .shrt/scratch/shelf-slice-get_product.yaml (3 of 3 steps, reproduced 3/3)
+    repro: shrt run .shrt/scratch/shelf-slice-get_product.yaml -keep-going (3 of 3 steps, reproduced 3/3)
 coverage: 11 rpcs without a contract: shrt contract init -all, then shrt contract plan -all -write
 masks: none of 5 masked values in 1 chain differ beyond run tags, ids, timestamps
 shrt gate: FAIL: 1 of 1 chain failed
+
+$ shrt run .shrt/scratch/shelf-slice-get_product.yaml -keep-going
+FAIL   3 get_product              GetProduct DUR
+       FAIL product.qty_on_hand want=5 got=0
+3 steps passed
+
+run .shrt/runs/shelf-slice-get_product/RUNID.json
+shelf-slice-get_product: FAILED in DUR
+  did not pass: get_product
+  -keep-going: 1 of 4 steps did not pass
+  suspect write add_stock (AddStock): answered qty_on_hand=5, but GetProduct read 0
+  add_stock sent {"id_product":"prd-0008","qty":"5"}
 
 # GetProduct reads one short: ListProducts reads the 5 AddStock answered, so the read
 $ shrt gate -repro  [exit 1]
@@ -15,8 +27,20 @@ FAIL shelf  get_product (GetProduct) product.qty_on_hand want=5 got=4; suspect t
 failures by suspect rpc:
   GetProduct product.qty_on_hand: 1 step in 1 chain, e.g. shelf get_product; answers product.qty_on_hand unlike what ListProducts returned
     settled on the read get_product: ListProducts read product.qty_on_hand=5, as the write add_stock answered, where GetProduct read 4
-    repro: shrt run .shrt/scratch/shelf-slice-get_product.yaml (3 of 3 steps, reproduced 3/3)
+    repro: shrt run .shrt/scratch/shelf-slice-get_product.yaml -keep-going (3 of 3 steps, reproduced 3/3)
 coverage: 11 rpcs without a contract: shrt contract init -all, then shrt contract plan -all -write
 masks: none of 5 masked values in 1 chain differ beyond run tags, ids, timestamps
 shrt gate: FAIL: 1 of 1 chain failed
+
+$ shrt run .shrt/scratch/shelf-slice-get_product.yaml -keep-going
+FAIL   3 get_product              GetProduct DUR
+       FAIL product.qty_on_hand want=5 got=4
+3 steps passed
+
+run .shrt/runs/shelf-slice-get_product/RUNID.json
+shelf-slice-get_product: FAILED in DUR
+  did not pass: get_product
+  -keep-going: 1 of 4 steps did not pass
+  suspect read get_product (GetProduct): answers product.qty_on_hand unlike what AddStock returned
+  get_product sent {"id_product":"prd-0015"}
 

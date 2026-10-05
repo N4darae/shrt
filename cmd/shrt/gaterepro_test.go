@@ -65,8 +65,13 @@ func TestGoldenGateRepro(t *testing.T) {
 		out, code := shrtOut(t, "gate", "-repro", "-no-session-check", "-hollow-baseline", "")
 		fmt.Fprintf(&golden, "# %s\n$ shrt gate -repro  [exit %d]\n%s\n", c.name, code, out)
 		want := map[bool]string{true: "settled on the write add_stock: ", false: "settled on the read get_product: "}[c.lost]
-		if code != 1 || !strings.Contains(out, want) || !strings.Contains(out, "repro: shrt run .shrt/scratch/shelf-slice-get_product.yaml (3 of 3 steps, reproduced 3/3)") || strings.Contains(out, "unclear") {
+		if code != 1 || !strings.Contains(out, want) || !strings.Contains(out, "repro: shrt run .shrt/scratch/shelf-slice-get_product.yaml -keep-going (3 of 3 steps, reproduced 3/3)") || strings.Contains(out, "unclear") {
 			t.Errorf("%s: the gate settles the unclear row with ListProducts and verifies a one-line repro, got %d:\n%s", c.name, code, out)
+		}
+		run, _ := shrtOut(t, "run", ".shrt/scratch/shelf-slice-get_product.yaml", "-keep-going")
+		fmt.Fprintf(&golden, "$ shrt run .shrt/scratch/shelf-slice-get_product.yaml -keep-going\n%s\n", run)
+		if strings.Contains(run, "unclear") {
+			t.Errorf("%s: the repro keeps the read that settled the row, so run names one suspect:\n%s", c.name, run)
 		}
 		if !strings.Contains(out, "masks: none of 5 masked values") {
 			t.Errorf("%s: a sku differing by the run tag under a volatile path is no mask that hid a change:\n%s", c.name, out)
@@ -131,7 +136,7 @@ func TestAWriteAnsweredOtherThanStoredKeepsItsReadBackInTheRepro(t *testing.T) {
 	if !strings.Contains(slice, "- id: fetch") || !strings.Contains(slice, "Then fetch reads order.total_minor back and expects what confirm answered, 0") {
 		t.Fatalf("the slice ends with the read-back expecting what the write answered:\n%s", slice)
 	}
-	if out, code := shrtOut(t, "run", ".shrt/scratch/till-slice-confirm.yaml", "-keep-going"); code != 1 || !strings.Contains(out, "FAIL order.total_minor want=0 (${vars.confirm_answered}) got=500") {
+	if out, code := shrtOut(t, "run", ".shrt/scratch/till-slice-confirm.yaml", "-keep-going"); code != 1 || !strings.Contains(out, "FAIL order.total_minor want=0 (as confirm answered) got=500") {
 		t.Fatalf("run with -keep-going, the slice shows the stored value beside the answer, got %d:\n%s", code, out)
 	}
 }
@@ -139,7 +144,7 @@ func TestAWriteAnsweredOtherThanStoredKeepsItsReadBackInTheRepro(t *testing.T) {
 func TestARunLineSaysWhereAReferencedWantCameFrom(t *testing.T) {
 	c := &chain.Chain{Steps: []*chain.Step{{ID: "fetch", Expect: []chain.Expectation{
 		{Path: "order.status", Equals: "${vars.confirm_answered}"}, {Path: "order.id_order", Equals: "o-${vars.tag}"}, {Path: "order.total_minor", Equals: "500"}}}}}
-	for path, want := range map[string]string{"order.status": "${vars.confirm_answered}", "order.id_order": "", "order.total_minor": "", "order.lines": ""} {
+	for path, want := range map[string]string{"order.status": "as confirm answered", "order.id_order": "", "order.total_minor": "", "order.lines": ""} {
 		if got := wantRef(c, "fetch", path); got != want {
 			t.Errorf("%s: got %q, want %q", path, got, want)
 		}

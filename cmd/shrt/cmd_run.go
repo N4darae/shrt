@@ -502,6 +502,9 @@ func wantRef(c *chain.Chain, step, path string) string {
 	}
 	for _, x := range s.Expect {
 		if ref, ok := x.Equals.(string); ok && x.Path == path && wholeRef.MatchString(ref) {
+			if step, ok := strings.CutSuffix(ref, "_answered}"); ok && strings.HasPrefix(step, "${vars.") {
+				return "as " + strings.TrimPrefix(step, "${vars.") + " answered"
+			}
 			return ref
 		}
 	}

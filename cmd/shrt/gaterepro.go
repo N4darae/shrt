@@ -201,7 +201,7 @@ func settle(ctx context.Context, e *env, ref gateRef, via tellRead, wait time.Du
 	read := steps[at]
 	field, viaName := gateIndex.ReplaceAllString(path, "[]$1"), chain.RPCName(via.method.FullName)
 	out, err := tellApartRun(ctx, e, c, r.Read, fmt.Sprintf(", then %s reads %s of the same item, to tell the write %s from the read %s.", viaName, field, r.Step, r.Read),
-		append(steps, &chain.Step{ID: r.Read + "_tell_apart", Call: via.method.FullName, Auth: read.Auth, SkipAuth: read.SkipAuth, Body: tellApartBody(via.method, rm, read, path)}), wait)
+		append(steps, tellStep(via, rm, read, path)), wait)
 	if err != nil {
 		return "not settled: " + err.Error(), ""
 	}
@@ -314,6 +314,10 @@ func settleWrites(ctx context.Context, e *env, ref gateRef, wait time.Duration) 
 	return fmt.Sprintf("%s: %s; %s", verdict, text, moved), side
 }
 
+func tellStep(via tellRead, rm *catalog.Method, read *chain.Step, path string) *chain.Step {
+	return &chain.Step{ID: read.ID + "_tell_apart", Call: via.method.FullName, Auth: read.Auth, SkipAuth: read.SkipAuth, Body: tellApartBody(via.method, rm, read, path)}
+}
+
 func tellApartBody(m, read *catalog.Method, st *chain.Step, path string) map[string]any {
 	segs := chain.SplitPath(path)
 	at := strings.Join(segs[:len(segs)-1], ".")
@@ -386,11 +390,11 @@ func reproRow(ctx context.Context, e *env, ref gateRef, fresh func(*chain.Chain,
 	}
 	if v := s.Verify; v.Outcome == sliceReproduced || v.Outcome == sliceIntermittent {
 		file = cmp.Or(s.Written, file)
-		flag := readBack(ctx, e, ref, file, vars)
-		kept := len(s.Kept)
-		if flag != "" {
+		back, kept := readBack(ctx, e, ref, file, vars), len(s.Kept)
+		if back != "" {
 			kept++
 		}
+		flag := cmp.Or(back, tellBack(ctx, e, ref, file, vars))
 		return fmt.Sprintf("repro: shrt run %s%s (%d of %d steps, %s%s)", shownPath(file), flag, kept, s.Total, outcomeWord(v.Outcome), v.countLabel()), file
 	}
 	v := s.Verify
@@ -444,26 +448,51 @@ func readBack(ctx context.Context, e *env, ref gateRef, file string, vars []stri
 	if _, kept := slice.Step(r.Read); path == "" || kept {
 		return ""
 	}
-	field := gateIndex.ReplaceAllString(path, "[]$1")
-	orig, _ := os.ReadFile(file)
+	field, answered := gateIndex.ReplaceAllString(path, "[]$1"), r.Step+"_answered"
 	back := *read
-	answered := r.Step + "_answered"
 	back.Expect = []chain.Expectation{{Path: path, Equals: "${vars." + answered + "}"}}
-	if slice.Vars == nil {
+	note := fmt.Sprintf("Then %s reads %s back and expects what %s answered, %s: run it with -keep-going to see the answer and the stored value side by side.", r.Read, field, r.Step, valueText(r.Want))
+	return thenRun(ctx, file, vars, &back, map[string]any{answered: r.Want}, note, func(items []gateItem) bool {
+		return slices.ContainsFunc(items, func(x gateItem) bool { return x.Step == r.Step }) && slices.ContainsFunc(items, func(x gateItem) bool { return x.Step == r.Read && x.Path == path })
+	})
+}
+
+func tellBack(ctx context.Context, e *env, ref gateRef, file string, vars []string) string {
+	r, path := ref.it.Reason, ref.it.Path
+	_, via, _ := tellApartReads(e, r, path)
+	c, err := e.resolveChain(ref.chain)
+	if len(via) == 0 || err != nil || r.Read != ref.it.Step {
+		return ""
+	}
+	read, ok := c.Step(r.Read)
+	rm, err := e.cat.Lookup(r.ReadRPC)
+	if !ok || err != nil {
+		return ""
+	}
+	note := fmt.Sprintf("Then %s reads %s of the same item, to tell the write %s from the read %s: run it with -keep-going.", chain.RPCName(via[0].method.FullName), gateIndex.ReplaceAllString(path, "[]$1"), r.Step, r.Read)
+	return thenRun(ctx, file, vars, tellStep(via[0], rm, read, path), nil, note, func(items []gateItem) bool {
+		return slices.ContainsFunc(items, func(x gateItem) bool { return x.Step == r.Read && x.Path == path && x.Reason.Kind != reasonUnclear })
+	})
+}
+
+func thenRun(ctx context.Context, file string, vars []string, step *chain.Step, set map[string]any, note string, shows func([]gateItem) bool) string {
+	slice, err := chain.LoadFile(file)
+	orig, rErr := os.ReadFile(file)
+	if err != nil || rErr != nil {
+		return ""
+	}
+	if len(set) > 0 && slice.Vars == nil {
 		slice.Vars = map[string]any{}
 	}
-	slice.Vars[answered] = r.Want
-	slice.Steps = append(slice.Steps, &back)
-	slice.Description = strings.TrimSpace(slice.Description) + fmt.Sprintf("\nThen %s reads %s back and expects what %s answered, %s: run it with -keep-going to see the answer and the stored value side by side.", r.Read, field, r.Step, valueText(r.Want))
+	maps.Copy(slice.Vars, set)
+	slice.Steps = append(slice.Steps, step)
+	slice.Description = strings.TrimSpace(slice.Description) + "\n" + note
 	args := []string{"run", file, "-quiet", "-keep-going"}
 	for _, v := range vars {
 		args = append(args, "-var", v+"="+chain.NewRunTag())
 	}
-	if writeSliceFile(file, slice) == nil {
-		items := gateExec(ctx, args).side.Items
-		if slices.ContainsFunc(items, func(x gateItem) bool { return x.Step == r.Step }) && slices.ContainsFunc(items, func(x gateItem) bool { return x.Step == r.Read && x.Path == path }) {
-			return " -keep-going"
-		}
+	if writeSliceFile(file, slice) == nil && shows(gateExec(ctx, args).side.Items) {
+		return " -keep-going"
 	}
 	_ = os.WriteFile(file, orig, 0o644)
 	return ""
