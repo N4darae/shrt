@@ -1,49 +1,28 @@
 # PLAYBOOK
 
-Procedures. Keys are in `GRAMMAR.md`; symptoms in `PITFALLS.md`. Examples use the default envelope,
-`error.code` with `OK` for success; substitute your `conventions.envelope_path` and `envelope_ok`
-(§3b).
+Procedures. Keys are in `GRAMMAR.md`, symptoms in `PITFALLS.md`. Examples use the default envelope, `error.code` with `OK` for success; substitute yours (§3b).
 
----
-
-## 1. Compose a chain — the fast path (a contract exists)
+## 1. Compose a chain when a contract exists
 
 ```bash
-shrt contract show InvoiceService/PayInvoice          # read before you generate
-shrt contract plan InvoiceService/PayInvoice          # preview
-shrt contract plan InvoiceService/PayInvoice -write   # write .shrt/chains/<name>.yaml
+shrt contract show InvoiceService/PayInvoice                   # read before you generate
+shrt contract plan InvoiceService/PayInvoice                   # preview
+shrt contract plan InvoiceService/PayInvoice -write            # .shrt/chains/<name>.yaml
 shrt contract plan InvoiceService/PayInvoice -write try.yaml   # .shrt/scratch/try.yaml, no gate runs it
 ```
 
-`plan` walks `needs`, `before`, `from` and `same_as`, sorts them and wires every `${...}`. Preview
-and `-write` print the same summary, never the chain:
+`plan` walks `needs`, `before`, `from` and `same_as`, orders the calls and wires every `${...}`. It prints a summary, never the chain.
 
-```
-order: CreateAccount -> CreateInvoice -> PayInvoice
-12 steps: 2 setup, 1 target, 4 token/role, 5 unknown id
-fill: create_account.name has no usable value: set fields.name.value in CreateAccount's contract
-gap: step pay_invoice: PayInvoice says nothing of what it gives back from PAID (add effects: {balance: {restore: PAID}} if it does), so the other reads assert only that they answer
-3 more note(s) on why each probe is there: shrt contract plan PayInvoice -notes
-next: shrt contract plan PayInvoice -write
-```
+- **`order:`** is a claim about the flow. Check it: `plan` cannot judge business sense.
+- **`fill:`** is test data you owe. Add the `value:` to the contract and re-plan with `-write -force`. Chain lint errors on each unfilled field.
+- **`gap:`** is what the plan could not assert. State it in the contract and re-plan, or write that step by hand.
+- **A missing step** is a missing contract edge. Fix the contract and re-plan.
+- `-force` refuses a chain with a safe spot or a kept-red slice. Plan beside it with `-write <name>.yaml`.
+- `-notes` says why each probe group is there; `-v` adds every step id.
+- A whole flow at once: `shrt contract plan PayInvoice GetInvoice ListInvoices CancelInvoice@paid -write`. A node reached twice appears once.
+- The same rpc twice, as a read before and after a write, needs an alias per instance: `aliases: {before: {note: ...}, after: {note: ...}}`, then `shrt contract plan GetAccount@before PayInvoice GetAccount@after -write`. Unordered targets keep the order you name them in.
 
-- **Check the `order:` line**: `plan` cannot tell whether the flow makes business sense.
-- **`fill:` is test data you owe**: add the `value:` to the contract and re-plan with
-  `-write -force`; chain lint ERRORs on each unfilled field. `-force` refuses a chain with a safe
-  spot or a kept-red slice and names it: plan beside it with `-write <name>.yaml`.
-- **`gap:` is what the plan could not assert**: say it in the contract and re-plan, or write
-  that step by hand.
-- **`-notes`** adds one line per probe group; `-notes -v` every note in full and every step id,
-  `-v` alone the ids.
-- **Compose a whole flow at once:** `shrt contract plan PayInvoice GetInvoice ListInvoices
-  CancelInvoice@paid -write`. Each target may carry `@alias`; a node reached twice appears once.
-- **A missing step is a missing contract edge**: fix the contract and re-plan.
-- **The same rpc twice** (a read before and after a write) needs one alias per instance
-  (`aliases: {before: {note: ...}, after: {note: ...}}`), then
-  `shrt contract plan GetAccount@before PayInvoice GetAccount@after -write`. Unordered targets
-  keep the order you name them in.
-
-## 2. Compose a chain — no contract yet
+## 2. Compose a chain with no contract yet
 
 ```bash
 shrt catalog ls -filter <word>
@@ -51,33 +30,18 @@ shrt catalog describe acme.billing.invoice.v1.InvoiceService/CreateInvoice
 shrt chain new -name invoice-happy-path InvoiceService/CreateInvoice InvoiceService/GetInvoice
 ```
 
-`chain new` wires a step's input to an earlier step's output when a contract says so, or, for an
-id no contract sets, when `contract init` would guess that producer; a producer not in the list is
-named in a note. A create listed twice gets the values a plan gives its second copy. Reads of one
-rpc after two creates take them in turn, restarting after each write; a repeated rpc's step is
-named after what it observes (`get_product_2_after_confirm_order`, `cancel_order_again`). Each step
-asserts what a plan would from its contract: the state the last write left (a write refused in that
-state expects the refusal), a list under a parent the chain created holding exactly its items, and
-levels and totals worked out from the quantities and prices sent, a give-back included: edit those
-and rework the numbers.
-An optional enum field left at `*_UNSPECIFIED` is left out of the body.
-Then write the contract (§7) so the next chains compose themselves.
+- `chain new` wires an input to an earlier step's output when a contract says so, or when `contract init` would guess that producer. A producer missing from the list is named in a note.
+- Each step asserts what a plan would, including levels and totals worked out from the quantities sent. Edit those and rework the numbers.
+- An optional enum left at `*_UNSPECIFIED` is left out of the body.
+- Then write the contract (§7), so the next chains compose themselves.
 
 ## 3. Fill the bodies
 
-`plan` calls a value unusable when the server will reject it: `""`, the zero enum member
-(`*_UNSPECIFIED`), a `"0"` int64 placeholder, a zero number, a repeated field of blank entries.
-`chain lint` cannot tell a scaffold `"0"` from a deliberate zero; only the plan header reports it.
-Say a zero is deliberate with `value: "0"` in the contract.
-
-**A repeated message field gets two items; keep two**, or a total or a check on the second item
-goes untested. The second is a copy with numbers raised and text prefixed `2-`; a reference to a
-create step points at a second copy of it (`create_account_2`, with its own values and
-preparation). Give it its own data where it matters and assert what depends on both. `plan`
-also varies the count (one item and three) for write targets. `shrt contract status -gaps` lists fields no chain
-sends with two items (`one item`), with two items on one resource only (`same resource`), or never
-with one resource on two applied items (`no repeat`), and a write its own plan calls on a record in a
-state, or with an item count there, that no chain does (`no state`).
+- `plan` calls a value unusable when the server will reject it: `""`, the zero enum member, a `"0"` int64, a zero number, blank list entries.
+- Lint cannot tell a scaffold `"0"` from a deliberate zero; only the plan header reports it. Mark a deliberate zero with `value: "0"` in the contract.
+- **A repeated message field gets two items. Keep two**, or a total or a check on the second item goes untested. The second copies the first with numbers raised by one and text prefixed `2-`. Give it its own data where it matters, and assert what depends on both.
+- For write targets `plan` also sends one item and three.
+- `shrt contract status -gaps` lists what no chain sends yet; `-v` explains each kind.
 
 Habits that keep a chain re-runnable:
 
@@ -87,14 +51,11 @@ Habits that keep a chain re-runnable:
 | a value two steps share | one reference to the first step's request (`${steps.a.request.x}`) or one var |
 | a unique name per run | `inv-${vars.tag}-a`; an undeclared `tag` is fresh on every run |
 
-`plan` leaves `tag` undeclared, so no run needs `-var`. A duplicate refusal (PITFALLS §15) is
-`fixture reused` or `fixture collision` (exit 3, re-run with a fresh `-var`), or
-`CHAIN DEFECT: the chain collides with itself` (exit 1: build the literal field from a var).
+`plan` leaves `tag` undeclared, so no run needs `-var`. A duplicate refusal: PITFALLS §15.
 
-## 3b. Tell shrt how YOUR backend answers
+## 3b. Tell shrt how your backend answers
 
-`.shrt/config.yaml` `conventions:` has six optional keys. For a backend answering
-`{"status": {"code": "SUCCESS"}}` with batch items `{"results": [{"status": {...}}]}`:
+`conventions:` in `.shrt/config.yaml` has six optional keys. For a backend answering `{"status": {"code": "SUCCESS"}}` with batch items `{"results": [{"status": {...}}]}`:
 
 ```yaml
 conventions:
@@ -106,24 +67,17 @@ conventions:
   validate_output: true
 ```
 
-- `read_only_prefixes`: which rpc names are reads, matched at a word boundary (`Get` covers
-  `GetInvoice`, not `Getaway`).
-- `envelope_path` / `envelope_ok`: where a response states its verdict, and the success value.
-- `item_envelope_path`: a batch's per-item verdict. **Set it first on any backend with batch
-  rpcs**: without it a batch refusing every line passes. Check it once against a refused line; it
-  applies only to responses whose message declares that list and field.
-- `code_fields`: detail fields `chain which -code` searches and that can pin a refusal.
-- `validate_output`: a response the descriptor rejects fails its step with `"drift": true`.
+- `read_only_prefixes`: which rpc names are reads, matched at a word boundary.
+- `envelope_path` and `envelope_ok`: where a response states its verdict, and the success value.
+- `item_envelope_path`: a batch's per-item verdict. **Set it first on any backend with batch rpcs**: without it, a batch refusing every line passes. Check it once against a refused line.
+- `code_fields`: detail fields `chain which -code` searches and a refusal can pin.
+- `validate_output`: a response the descriptor rejects fails its step.
 
-A path no response message declares fails `shrt run` before sending. With the login credentials
-exported, `shrt init` logs in once and writes `envelope_path`, `envelope_ok` and an unambiguous
-`item_envelope_path` (else exit 3 naming the variables; `-v` prints the block to paste); it never
-rewrites an existing `conventions:` block. Key table: `GRAMMAR.md` §4.
+With the login credentials exported, `shrt init` logs in once and writes the envelope keys. It never rewrites an existing `conventions:` block; `init -v` prints the block to paste.
 
 ## 4. Assert something that can fail
 
-A step whose only expectation is `error.code == OK` asserts the server did not crash. Say what the
-call *did*:
+A step whose only expectation is `error.code == OK` asserts only that the server did not crash. Say what the call did:
 
 ```yaml
 expect:
@@ -135,57 +89,16 @@ expect:
     equals: ${steps.account_before.response.account.balance_minor}
 ```
 
-A `${...}` in `equals` / `not_equal` / `contains` and the numeric bounds resolves at run time. It
-does no arithmetic: for *after == before + added*, choose the inputs, work the result out, and
-assert it as a literal or a var. A `${...}` in `path` is a lint error. Rules: `GRAMMAR.md` §1.
+- A `${...}` in `equals`, `not_equal`, `contains` or a numeric bound resolves at run time. A `${...}` in `path` is a lint error.
+- It does no arithmetic. For *after == before + added*, choose the inputs, work the result out, and assert it as a literal or a var.
 
-**What `plan` asserts and probes by itself**, from what the contracts state (read the notes; do
-not delete a probe that fails, pin a real defect with `kept_red`, §9):
+**`plan` probes by itself** what the contracts state: echoed values, states, list order and filters, uniqueness, limits, each failure's `when:`, other roles and missing tokens, `effects:` numbers, boundaries, batches and replays. Each probe group has fixtures of its own, so one defect fails one group. Never delete a probe that fails; pin a real defect (§9).
 
-- the verdict, each numeric field a write sent echoed back, a created id, the state the contract
-  names, and a timestamp range (`within: {of: "${nowunix}", by: 300}` for a stamp the call makes,
-  an expiry against the stated lifetime, `equals` for a creation stamp read back);
-- for a list: three fixtures, or four when more keys compete, whose creation order, varied request
-  fields and item numbers (so a total over the items) disagree pairwise either way (a
-  server-generated id is not controlled), positions by id when the contract states the order,
-  otherwise membership (`includes:`) and a count; a fixture outside the filter's scope (another
-  parent, a prefix not at the start), one list per reachable state for an enum filter, and a list
-  of 12 fixtures (one past a stated "at most N") so a cap shows; a list the run does not scope is
-  declared `volatile`;
-- for a uniqueness failure: the same value again, the same value with every other field changed,
-  and a case or whitespace variant when the contract says the comparison ignores case or trims
-  (`unique: {case: ignore, trim: true}` states it as data);
-- for a quantity or limit failure: a request just past the limit and one exactly at it, on the first
-  and the last item, with reads before and after asserting a refused write changed nothing;
-- a failure whose `when:` names a state, probed from that state; a not-found failure, probed with
-  an id nothing created; `invalid_argument` clauses in `when:` (empty, zero, negative, missing `@`)
-  turned into malformed requests;
-- the target after each other write moved the record to a state it does not refuse; when its
-  `needs:` only takes the record to the state its `restore:` names, also on a record left in the
-  state before it, with one, two and three items, the reads around it asserting nothing moved;
-- with auth configured: each target without a token and with `auth: invalid`; a role-gated rpc
-  as each profile not holding the role; an rpc every role may call, repeated as each profile and
-  compared;
-- the exact number a write moves on a record it names, on the write and on the read after it, and
-  a total over lines, with one line past 2^32, when `effects:` states them (§7);
-- numbers of different magnitudes, a large value, minimum and maximum boundaries a note or `when:`
-  states, long and multi-byte text;
-- a batch with a refused middle item; an idempotency key replayed with the same and with another
-  body.
-
-Each probe group runs on fixtures of its own (`<fixture>_for_<group>`), so one defect fails one
-group. `shrt contract status -gaps` lists what no chain exercises yet.
-
-**A read that passed and found nothing**: `shrt chain hollow` names every read step in the run
-records (runs and verify replays under `paths.chains`) that passed with an empty body; exit 1 while
-any is unexplained. Assert what the read should find. A probe pinning a non-OK verdict, and
-`<list>.0 exists: false`, already say empty is right; otherwise add `<chain> <step-id> <reason>` to
-`.shrt/hollow-allow.txt`.
+**A read that passed and found nothing.** `shrt chain hollow` names every read step in the run records that passed with an empty body, and exits 1 while any is unexplained. Assert what the read should find. Where empty is right, add `<chain> <step-id> <reason>` to `.shrt/hollow-allow.txt`. A pinned refusal, or `<list>.0 exists: false`, already says empty is right.
 
 ## 5. Probe one failure code
 
-The unit of failure coverage is an `(rpc, code)` pair some run record observed. Check one pair with
-`shrt chain which -rpc R -code C` (§10). To turn a declared code into an observed one:
+Failure coverage counts `(rpc, code)` pairs a run record observed; check one with `shrt chain which -rpc R -code C` (§10).
 
 ```yaml
     - id: pay_twice
@@ -201,35 +114,22 @@ The unit of failure coverage is an `(rpc, code)` pair some run record observed. 
           equals: InvoiceAlreadyPaid
 ```
 
-- The refusal line on the envelope (or `transport.*`) makes lint treat the step as a probe;
-  without it lint demands every required field the probe omits (PITFALLS §13).
+- The refusal line on the envelope, or on `transport.*`, makes lint treat the step as a probe. Without it lint demands every required field the probe leaves out.
 - No `allow_fail`: it only tolerates a transport refusal on a step with no expectations.
-- Assert `app_code` **and** `reason` for a named business failure; the envelope code alone is
-  shared by many refusals.
-- **A shape or auth error has no `app_code` or `reason`.** Read the failing step's `http_status`:
-  - 200 with the verdict in the body: assert the envelope code, `error.message contains: ...`, and
-    `error.details.0.reason exists: false`.
-  - 4xx Connect error: there is no body. Assert `transport.code equals: invalid_argument` and
-    `transport.message contains: ...`.
-
-Before writing the probe, check the contract's `unreachable:` and `pending_deploy:`.
-
-To see behind the first red, `shrt run -keep-going <chain>`: every step runs; one reading a failed
-step's response is `skipped`. `-v` prints every step. `shrt gate` already runs a chain with no
-safe spot this way, and `gate -v` lists each failed step's values.
+- Assert `app_code` **and** `reason` for a named business failure. The envelope code alone is shared by many refusals.
+- A shape or auth error has no `app_code` or `reason`. Read the step's `http_status`:
+  - 200 with the verdict in the body: assert the envelope code, `error.message contains:`, and `error.details.0.reason exists: false`.
+  - 4xx Connect error, no body: assert `transport.code` (`invalid_argument`) and `transport.message contains:`.
+- Check the contract's `unreachable:` and `pending_deploy:` first.
+- To see past the first red, `shrt run -keep-going <chain>`. A step reading a failed step's response is `skipped`.
 
 ## 6. Cross a principal boundary
 
-`.shrt/config.yaml` declares the login once; the runner attaches the header and logs in again on
-expiry or on an unauthenticated answer. A read, or a call whose cached token was unused, is then
-re-sent (`auth_retry: resent`); a write refused with an already accepted token is not
-(`auth_retry: not_resent`, exit 3). `auth_profile` records the profile a step ran as.
+`.shrt/config.yaml` declares the login once. The runner attaches the header and logs in again on expiry or an unauthenticated answer. Then a read is re-sent; a write refused after its token was accepted is not (exit 3).
 
-- A second principal is a named profile under `auth.profiles`; put `auth: <profile>` on the step.
-- A login step is optional. It needs no `skip_auth`, and seeds a profile's token only when it sent
-  that profile's `body` exactly.
-- Never a hand-written `Authorization` header, with or without `skip_auth`: lint rejects it and
-  `shrt run` refuses the chain.
+- A second principal is a named profile under `auth.profiles`. Put `auth: <profile>` on the step.
+- A login step is optional. It seeds a profile's token only when it sent that profile's `body` exactly.
+- Never write an `Authorization` header. Lint rejects it and `shrt run` refuses the chain.
 - Probe a missing and an invalid token with the two sanctioned forms:
 
   ```yaml
@@ -249,112 +149,67 @@ re-sent (`auth_retry: resent`); a write refused with an already accepted token i
             equals: unauthenticated
   ```
 
-  `auth: invalid` sends a never-issued token in the covering profile's header. A backend reporting
-  unauthenticated in a 200 body: assert the envelope path instead.
+- A backend answering unauthenticated in a 200 body: assert the envelope path instead.
+- A token refused well before its stated expiry: PITFALLS §33.
+- A read answered with a server error is re-sent once and judged on the answer. Writes are never re-sent.
 
-`run` and `verify`: a token refused after it was accepted earlier in the run points at a restart
-(exit 3); the same refusal at the same step in the previous run, no restart shown, is a finding
-(exit 1). `WARNING: token refused <N>s after issue` well before the stated expiry: settle it with a
-chain of held reads (PITFALLS §33). A step with no answer (dropped connection, timeout) is exit 3,
-a `FINDING` when the previous run did the same while later steps answered. A read with a server
-error is re-sent once and judged on the answer; one answered then or elsewhere is
-`FINDING: intermittent failure at <rpc>`. Writes are never re-sent.
-
-## 7. Author or extend a contract, in payoff order
-
-State behaviour from the spec (README, API docs, tests), not from what the handler does: a contract
-copied from a buggy handler makes the planner assert the bug as correct. Use the handler for names,
-codes, shapes, `required` (what it rejects up front) and `requires_role` (its authorisation rules),
-and report where it disagrees with the spec.
+## 7. Author or extend a contract
 
 ```bash
-shrt contract quality                  # what is missing — start here
+shrt contract quality                  # what is missing: start here
 shrt contract init <domain>            # scaffold; re-running keeps what you wrote
 shrt contract lint
 ```
 
-**A domain is the package segment after the organisation root, versions dropped**:
-`acme.billing.invoice.v1.InvoiceService` is `billing`; a reverse-DNS root (`com`, `org`) is dropped
-too. Privileged writes grouped under one segment (`acme.admin.*`) land in that overlay, so when a
-domain's writes look too few for its reads, grep the catalog.
+**Spec over handler.** State behaviour from the spec: README, API docs, tests. A contract copied from a buggy handler makes the planner assert the bug as correct. Use the handler for names, codes, shapes, `required` and `requires_role`. Report where the two disagree.
 
-**`contract status` counts entries; `contract quality` measures them.** CONTRACT fills as soon as
-a scaffold lands; RPCS above it is an rpc no overlay covers. REACHED below it is a write missing a
-`needs:` or `from:` (`status -gaps`: `no path to`).
+**Domains.** A domain is the package segment after the organisation root, versions dropped: `acme.billing.invoice.v1.InvoiceService` is `billing`. Privileged writes grouped under one segment (`acme.admin.*`) land in that overlay. A domain whose writes look too few for its reads: grep the catalog.
 
-The score (the footer of `shrt contract status -v` prints today's list):
+**Score.** `shrt contract quality` lists what each rpc lacks; `shrt contract status -v` explains the terms.
 
-| weight | phase | term |
-|---|---|---|
-| 2 | happy | a request field neither in `required:` nor documented in `fields:` |
-| 2 | happy | an id field with no `from` / `same_as` / `value` (unless optional and its note says why) |
-| 2 | failure | a write rpc with no `failures:` of its own |
-| 2 | happy | a missing, `TODO` or under-three-word `summary` |
-| 2 | happy | no `requires_role:` (`[NONE]` says no role gate) |
-| 2 | happy | a read no write can reach (unless `no_producer:` says why) |
-| 2 | happy | request fields and an empty `required:` (`[NONE]` says nothing is required) |
-| 1 | failure | a wired id with no `checked_by:` |
-| 1 | happy | a top-level response field in no `exports:`, `terminal:` or `soft_signals:` |
-| 1 | failure | a failure with no `when:`, `unreachable:` or `pending_deploy:` |
-| 2 | happy | a unary rpc no overlay covers, scored as an empty entry plus this |
+- Curate `-phase happy` first.
+- Reads are exempt from the id and write-failure terms.
+- Only `no_producer:`, `requires_role: [NONE]` and `required: [NONE]` exempt a term. `note:` spares nothing.
+- `[NONE]` is a positive claim, never a way to lower the score.
+- `shrt contract quality -gate -baseline <file>` fails when the score rises, or falls without the baseline being lowered.
+- **Score 0 is necessary, never sufficient.** No term sees an incomplete `needs:`, and `before:` has none.
 
-Reads are exempt from the id and write-failure terms. Curate `-phase happy` first. An unfilled
-`TODO` is not charged by itself, and `note:` spares no term: the only exemptions are
-`no_producer:`, `requires_role: [NONE]` and `required: [NONE]`. Ratchet the score with
-`shrt contract quality -gate -baseline <file>`: it fails when the score rises, or falls without the
-baseline being lowered.
+**Fill in this order**; each step pays for the next:
 
-**Score 0 is necessary, never sufficient.** No term sees an incomplete `needs:`, and `before:`
-has no term. Fill in this order; each step pays for the next:
-
-1. **`required`**, from the backend source, reads included. `required: [NONE]` if the server
-   rejects nothing; `required: [UNKNOWN]` if you could not find the handler.
-2. **`fields.<f>.from` / `same_as`**, the ordering edges. Wrong ones show in the `# order:` line.
-3. **`needs` / `before`**, the prerequisites nothing references. `needs:` names the write creating
-   each row the handler reads whose identity comes from no request field (`from:` only wires the
-   id you filter by); `before:`, the rpc in another domain consuming what yours writes. Then
-   `shrt contract plan <read>` for every read: a one-step order has no producer, and one creating
-   the entity but never the row being read is the same bug, quieter. A `needs:` puts the rpc after
-   that write on the main path and in every probe. When the write only takes the record to the state
-   the rpc's `restore:` names (CancelOrder `needs: [ConfirmOrder]` with
-   `{qty_on_hand: {restore: CONFIRMED}}`), `plan` also calls the rpc on a record left in the state
-   before it (`cancel_order_from_pending`, `cancel_order_3_lines_from_pending`), unless a failure
-   refuses that state.
-4. **`failures`**, one per way the rpc refuses, `when:` written as a condition. `code` is optional
-   for a shape error. `reason:` is the backend's string verbatim for a coded failure, and a label
-   you invent for a shape or auth failure.
-5. **`effects`**, for a write that moves a number a record holds. `summary` is prose for people;
-   `plan` asserts levels and totals from this key; a `gap:` prints the one to add, or the wiring
-   a declared one lacks:
-   `{balance: {increase: amount}}` (`decrease`; `lines.amount` moves once per line),
-   `{balance: {decrease: lines.amount, of: id_invoice}}` (per line of the record `id_invoice` names),
-   `{balance: {restore: POSTED}}` (gives back what that took, from a POSTED record),
-   `{balance: none}` (leaves it alone), `{balance: zero}` (a create starts it at 0),
-   `{total_minor: {sum: lines.qty, times: unit_price}}`, `{lines: per_item}` (each line applied or
-   refused alone).
-6. **`exports`, `terminal`, `soft_signals`**: what the response is for. `terminal` records a dead
-   end instead of deleting it.
+1. **`required`**, from the backend source, reads included. `[NONE]` if the server rejects nothing; `[UNKNOWN]` if the handler cannot be found.
+2. **`fields.<f>.from` / `same_as`**: the ordering edges. Wrong ones show in the `order:` line.
+3. **`needs` / `before`**: prerequisites no field references.
+   - `needs:` names the write creating each row the handler reads whose identity comes from no request field. `from:` only wires the id you filter by.
+   - `before:` is the rpc in another domain consuming what yours writes. It attaches the plain rpc; to order aliases, list them in the dependent rpc's `needs:`.
+   - Then `shrt contract plan <read>` for every read. A one-step order has no producer; one creating the entity but never the row being read is the same bug.
+   - A write that only takes the record to the state the rpc's `restore:` names makes `plan` also call the rpc from the state before it.
+   - Name writes that live in another overlay; do not copy them.
+4. **`failures`**: one per way the rpc refuses, `when:` written as a condition. `code` is optional for a shape error. `reason:` is the backend's string verbatim, or a label you choose for a shape or auth failure. Codes every rpc in the domain returns go in the top-level `failures:`.
+5. **`effects`**: for a write that moves a number a record holds. `plan` asserts levels and totals from it; a `gap:` prints the one to add.
+   - `{balance: {increase: amount}}`, or `decrease`; `lines.amount` moves once per line
+   - `{balance: {decrease: lines.amount, of: id_invoice}}`: per line of the record `id_invoice` names
+   - `{balance: {restore: POSTED}}`: gives back what was taken, from a POSTED record
+   - `{balance: none}` leaves it alone; `{balance: zero}`: a create starts it at 0
+   - `{total_minor: {sum: lines.qty, times: unit_price}}`
+   - `{lines: per_item}`: each line applied or refused alone
+6. **`exports`, `terminal`, `soft_signals`**: what the response is for. `terminal` records a dead end instead of deleting it.
 7. **`source`**: the files you read, without line ranges.
 
-`before:` always attaches the plain rpc; to order aliases, list them in the dependent rpc's
-`needs:`. Leave `status: draft`: only a human sets `verified`. A codes-vs-contract cross-check needs
-a reader of your backend's error constructor, so it is a script you write (PITFALLS §24).
+- `summary` and `note` are prose for people. A note earns its place by saying what a caller could not guess, such as "decimal string, must be > 0".
+- `@alias` is for two independent instances of one rpc (`CreateAccount@payer`, `CreateAccount@payee`). Declare it under `aliases:` with what makes them differ.
+- Leave `status: draft`. Only a person sets `verified`.
+- A codes-against-contract cross-check is a script you write (PITFALLS §24).
 
 ## 8. Run, hand off, verify
 
 ```bash
 shrt chain lint <name>          # fix every error before sending traffic
-shrt chain lint -strict <name>  # and every assertion-quality warning, before it is a gate
-shrt run <name> -dry-run        # resolve and validate, send nothing; lints only expect paths
+shrt chain lint -strict <name>  # and every assertion-quality warning, before it gates
+shrt run <name> -dry-run        # resolve and validate, send nothing
 shrt run <name>
 ```
 
-Step status: `ok`, `FAIL` (an expectation did not hold, or the proto rejects the request), `ERROR`
-(never completed), `SKIP` (held back under `-keep-going`), `--` (dry run). `shrt run` refuses a
-chain before sending anything on a missing var, an unset env var, a reference to an undeclared
-field, a body the proto rejects, or an expect path the response message has no field for (`chain
-error ..., not a backend fault`, the `unreachable-path` lint error, so no suspect is named). A step refused in-band fails unless an
-expectation pins the verdict (PITFALLS §12). Read `error` as a fixture problem first (PITFALLS §2).
+Read a step's `error` as a fixture problem first (PITFALLS §2).
 
 **Run the chain twice, then propose:**
 
@@ -362,182 +217,85 @@ expectation pins the verdict (PITFALLS §12). Read `error` as a fixture problem 
 shrt confirm <name> -run <run-id> -note "what you inspected in the responses, and why it is right"
 ```
 
-This writes `.shrt/safespots/pending/<name>.json` and a report, and prints the summary table
-(`also baselined:` lists unasserted values that become baseline too). A field that differs from the
-previous passing run is warned about: declare it `volatile` unless the change is real.
+It writes `.shrt/safespots/pending/<name>.json` and prints a summary table.
 
-**Present the proposal in the conversation, in the user's language; do not send a file path:**
+**Present the proposal in the conversation, in the user's language, not as a file path:**
 
-1. one line: chain, run id, `n/n` steps passed, what the chain exercises;
-2. the table, each step as a plain situation ("pay the same invoice again"), what was sent, what
-   came back, whether that is right;
-3. the one or two facts that carry the verdict, and anything you are unsure of;
-4. what approving means: every response field not under a volatile pattern becomes the baseline,
-   and any warning the summary printed;
-5. the question: approve or reject.
+1. One line: chain, run id, steps passed, what the chain exercises.
+2. The table: each step as a plain situation ("pay the same invoice again"), what was sent, what came back, whether that is right.
+3. The one or two facts that carry the verdict, and anything you are unsure of.
+4. What approving means: every response field not under a volatile pattern becomes the baseline. Add any warning the summary printed.
+5. The question: approve or reject.
 
-Run `shrt confirm <name> -approve -by <user email>` only after the user answers yes to THIS
-proposal; ask for the email if unknown. `-reject` discards it; `-pending` lists proposals.
-`confirm` refuses a hand-edited run record and, on `-approve`, a chain file unlike the one the run
-ran: approve on the proposal's branch. A chain with a safe spot needs `-supersede`; the old one is
-archived under `.shrt/safespots/archive/<chain>/`.
+Then:
 
-For a suite, `shrt confirm -all -note "..."` proposes every chain whose latest run passed and whose
-safe spot is missing or differs, one row each (full summaries in `.shrt/safespots/pending/`).
-Present the table, `shrt confirm <chain> -reject` each one the user refuses, and only after a yes
-to the rest, `shrt confirm -all -approve -by <user email>`.
-
-A safe spot belongs to the chain name. For a pure rename, `shrt confirm <new> -rename-from <old>
--by <email>` carries it across; any other difference is refused.
+- Run `shrt confirm <name> -approve -by <user email>` only after a yes to this proposal. Ask for the email if unknown.
+- `-reject` discards it; `-pending` lists proposals.
+- Approve on the proposal's branch: `-approve` refuses a chain file unlike the one the run ran.
+- A chain with a safe spot needs `-supersede`; the old one is archived.
+- A suite: `shrt confirm -all -note "..."` proposes each chain whose latest run passed and whose safe spot is missing or differs. Present the table, `-reject` each one the user refuses, then `shrt confirm -all -approve -by <user email>`.
+- A safe spot belongs to the chain name. A pure rename: `shrt confirm <new> -rename-from <old> -by <email>`.
 
 **Two branches superseded the same safe spot.** Never hand-merge the JSON:
 
-1. Take one side whole: `git checkout --ours .shrt/safespots/<chain>.json` (or `--theirs`), the
-   side whose chain file the merge keeps.
-2. Deploy the merged backend and run `shrt doctor -strict` and `shrt verify <chain>`.
-3. If it drifts, run, propose with `-supersede` and have a person approve.
+1. Take one side whole, the side whose chain file the merge keeps: `git checkout --ours .shrt/safespots/<chain>.json`, or `--theirs`.
+2. Deploy the merged backend; run `shrt doctor -strict` and `shrt verify <chain>`.
+3. If it drifts, run, propose with `-supersede`, and have a person approve.
 
-**How the gate names a suspect** (gate lines, the gate summary, `verify` and `run`). A gate line
-shortens a suspect that is its own step to `suspect the read` / `suspect the write` and the
-unclear read form to `or the read`; a summary line leaves out what its heading says; `verify` and
-`run` print every form in full. The gate names a suspect's role (`as clerk`) only when no other
-role fails at the same rpc and field in that gate; such a role-only fault gets a summary line apart
-from the rpc's other faults.
+**Suspect words** in gate, `verify` and `run` lines:
 
-| verdict word | what it means | what to do |
-|---|---|---|
-| `suspect write <step> (<rpc>)` | its answer changed, or a read of the record observes it; `...: answered <path>=<x>, but <rpc> read <y>` (or `in another order than`): it stores other than it answers | fix the write |
-| `suspect read <step> (<rpc>): <what>` | a server error, a failed auth probe, refused (`passes as <p>` when another profile passes), another set or order of items (`answers <n> <list> where it answered <m>` when the count changed), a code it did not answer before (`answers <code> where it answered <code>`; with no earlier answer, `where the chain expects <code>` or `anything but <code>`), `answers <path> unlike as <p>` (a role-scoped view leaks or hides the field), or `unlike what <write> returned` | fix the read |
-| `unclear: write <a> (<rpc>) or <b> (<rpc>)` (`+N more`) | several writes on the record move the field (by `effects:`, a `restore:` only from a state seen; against a reference, any acting on it, but not a changed write whose `effects:` says `none` for the field) since the last read of it that still matched, and none answered differently. A write answering the field as before in a message of its own (a per-line result, a stock level) is one of them, since it may store other than it answered, and the writes before it are not; one answering the record's own message as before counts as a read. A candidate whose own `increase:`/`decrease:` quantity on the record is known and is not the change drops out when another's is | read the record between them; for two writes on a counter `gate -repro` does: `settled on the write <a> (<rpc>) in <chain>: <rpc> read <field>=<v> right after it where the write answered <w>, and <b> fell ..., as the approved run fell ...` |
-| `unclear: write ... or the read: answered ...` | the write answered as before and only the read moved | read the field through the rpc `tell them apart:` names (`run`, `verify`, `gate -v`); with no such rpc, `<write> answered <field> as sent; only <Rpc> differs` leans to the read; or check what the write persisted |
-| `knock-on of <step> (<rpc>)` | the step failed behind that one's failure; a held-back step answering otherwise than the step it copies is judged on its own | fix that one first |
-| `same fault as <chain> (<rpc>)` | the suspect and field that chain's gate line names (or one of this line's `unclear` writes), and that line names every other suspect of this chain too; the chain is the first with a safe spot whose line leads with that fault, even one below, else the first above. Otherwise the line names its own suspect and `also` the first other one that chain's line leaves out, if any | fix it once, under that line |
-| `not as pinned` / `pins held, new change` | a kept-red chain's pin moved, or a new defect beside the pinned ones | do not re-pin; run its `shrt diff` |
+- `suspect write`: its answer changed, or a read shows it stored other than it answered. Fix the write.
+- `suspect read`: the read itself answered otherwise. Fix the read.
+- `unclear: write <a> or <b>`: several writes since the last matching read may have moved the field. Read the record between them.
+- `unclear: write ... or the read`: the write answered as before and only the read moved. Read the field through the rpc `tell them apart:` names.
+- `knock-on of <step>`: failed behind that step. Fix that one first.
+- `as <role>`: no other role fails at that rpc and field.
 
-**What triggers it.** A row of `failures by suspect rpc:` may carry a `trigger:` line: the row's
-failing calls of that rpc set against its calls that passed in the same gate, split by what the
-requests show. The auth profile: `fails as clerk (3 calls); passes as default (12 calls)`; it says
-`fails when ConfirmOrder itself is sent as clerk` when some calls act on records another profile
-created, and says only what those calls show: `2 of them act on records created as default, so the
-creator need not be clerk`, or on the passing side `1 of them acts on records created as clerk, so
-that alone does not fail it`. It never speaks for a mix no call covered; when a failing call acts on
-records its own profile created (`-repro` sends one when none did), it adds `; 1 of them acts on
-records created as clerk too`.
-A list's length: `fails with lines of 2+ items (13 calls); passes with lines of 1 item (12
-calls)`. A list repeating an item key: `fails when lines repeat id_product (6 calls; lines of 2 and
-3 items); passes with distinct id_product (4 calls; lines of 1, 2, 3 and 12 items)`. A field set or
-empty: `fails with sku_prefix empty or absent`. A number in a field or in a list's first or last
-item: `fails with lines[last].qty above 1`. The byte length of the field the failing value echoes:
-`fails with name of 21+ bytes (4 calls); passes with name of up to 18 bytes (9 calls)`, the bounds
-the calls show; `longer than 20 bytes` or `above 1` only where they pin the boundary. A value needs
-two calls on each side and on every call. When no single split holds, two that hold only together,
-if exactly one pair does: `fails with lines of 2+ items and lines[last].qty above 1 (30 calls);
-passes otherwise: lines of 1 item (12 calls), lines[last].qty 1 (6 calls)`. Where the failing value
-echoes the request (its want is a field sent), the line ends with how got relates to what was sent
-when one rule fits every such call: `got keeps the first 20 bytes of the name sent (3 calls)`, the
-last bytes, a count dropped, trimmed, another case; alone under the row when nothing splits the
-calls. A passing call counts only where the gate checked the row's field on it, by its own
-expectation or, when a later read shows the fault, a later read of the same record; for a refusal,
-any call of it that succeeded, leaving out auth probes. Two splits that both hold are both said; a
-single split beside a pair, or two pairs, say nothing, since the calls cannot tell which it is. With two or more failing calls and
-no passing call, `fails on every call (21 of 21; as clerk and default, lines of 1 to 6 items)` names
-what the failing calls span.
-No line means none of these splits them, so probe from the example. The example is the call that
-differs from a passing one only in the trigger, in a chain with a safe spot, never a kept-red slice
-when another chain fails so, and `-repro` slices that step. Where the line rests on thin evidence
-(one call on a side, a byte boundary the calls leave untried, a profile split no call tried on
-records its own profile created, a read answered for an unknown id), `-repro` sends that call again
-from the slice, at most twice, and prints the firmed line above the repro, or `trigger above does
-not hold:` and what was sent: take that line, do not probe it again by hand.
-
-**How far it moved.** When the example reads a counter a suspect write moved (the write's contract
-declares `increase:` or `decrease:` for the field), the row adds the move next to the approved run's:
-`qty_on_hand fell 4 from 10 to 6 where the approved run fell 2 from 10 to 8: 2x`, measured from the
-last value of that field of the same record (matched by its ids, never another record sharing one of
-them) before the suspect (a read, or the answer of another write the suspect search weighed; never a
-refused call or a refused line of a batch; the last applied line when one call answers several for
-the record) in the run and in the safe spot's run. Nothing is said for a field the write does not
-count (a total its own create set), when no such value exists, when more than one suspect write
-moved it (an `unclear` pair), or another write in between may move the field (no `effects:` of
-`none`, not refused both times): a wrong number is worse than none. `on every failing step` means
-each failing step of the row's field has the same ratio; else `on 4 of 5 failing steps; list_prefix
-not measured (cancel_two acts on that record between)` names the first step without one and why.
-`verify` and `gate -v` print it after each such change.
-
-A suspect is a lead, not a proof. Test a suspect write with `shrt chain slice <chain> -without
-<step> -verify` (§11). It compares how each failing step fails, envelope code and each
-expectation's got: `STILL FAILS` (exit 1) only when every one fails exactly as it did, so the write
-is not their cause. `FAILS DIFFERENTLY` (exit 3, `source got -3, without it got 3`) means the write
-changes them: it is involved, and a read that expects what it does cannot pass without it, so run
-the `next:` slice instead of clearing it. Steps that pass without it may only need its state.
+A suspect is a lead. Test a suspect write with `shrt chain slice <chain> -without <step> -verify` (§11).
 
 ## 9. Refactor and test against a safe spot
 
-`shrt run` asks whether the assertions hold; `shrt verify` asks whether every response field still
-matches what a person approved.
-
 ```bash
-shrt run <name>                                  # before the change
-shrt verify <name> -run <run-id>                 # re-diff that record, offline (no safe spot: its failed expectations)
+shrt run <name>                    # before the change
+shrt verify <name> -run <run-id>   # re-diff that record offline
 # change the code, then the same two lines
 ```
 
-Reading the report:
+What verify compares and masks: `GRAMMAR.md` §7. A clean verify covers only that chain's steps.
 
-- Change kinds: `GRAMMAR.md` §7. A clean verify covers only that chain's steps.
-- Every step runs as under `-keep-going`; one held back behind a failure is `not_reached`.
-- It masks `volatile` paths, id- and timestamp-shaped values, and values that only echo a fixture
-  name or a `${uuid}` (one `not counted: N` line; `-masked` lists them and a changed target).
-  A lost volatile value (null, empty, gone) is still reported, as is a volatile list's length
-  when its expectation failed.
-  Anything else that changes every run belongs in `volatile`; ids do not (verify pairs them across
-  runs, and a volatile id hides a stale one).
-- It compares what each step SENT first: a changed request or chain that explains every response
-  change is `drift with different input` / `drift after a chain change`, otherwise `regression`.
-- A list whose order varies between runs of one release: declare `unordered: [<list>]`; otherwise a
-  reorder fails with `order changed`, a regression when the order was promised.
-- A field the descriptor gained and the backend does not send yet is not a change.
-- `LATENCY:` (at least 250ms and 3x slower than the safe spot's run, a read re-sent to confirm)
-  fails only with `latency: {fail: true}` (`GRAMMAR.md` §4).
+- A value that changes every run and is not id- or timestamp-shaped belongs in `volatile`. Ids do not: verify pairs them across runs.
+- A list whose order varies between runs of one release: `unordered: [<list>]`.
 - An intended change: `shrt confirm <name> -supersede -note "..."`, then a person approves.
 
-**A chain kept red on purpose is never confirmed.** It asserts the correct behaviour and pins the
-known defect with `kept_red` (step, path, and the `got` when stable). `shrt run` of it goes past
-every failure, exits 0 while it fails exactly as pinned, and 1 when anything else fails, a pinned
-step returns something else than in the last run that failed as pinned, or the defect is gone. A
-slice whose pins held but which fails where its parent's latest run fails too says `pins held; also
-fails at <step> <field>, which the parent chain <name> fails too`: the parent's regression, not a
-new defect of the slice.
+**A chain kept red on purpose is never confirmed.** It asserts the correct behaviour and pins the known defect with `kept_red`: step, path, and the `got` when stable.
 
-**One real defect in a long chain: keep it red in a slice, confirm the rest:**
+- `shrt run` of it goes past every failure. It exits 0 while it fails exactly as pinned.
+- It exits 1 when anything else fails, a pinned step answers differently from the last run that failed as pinned, or the defect is gone.
+- A slice whose pins held but which fails where its parent fails too reports the parent's regression, not a new defect.
+
+**One real defect in a long chain: keep it red in a slice, confirm the rest.**
 
 ```bash
-shrt chain pin billing               # each defect kept red in its own verified slice, billing without them
-shrt run billing                     # green: propose and approve it
+shrt chain pin billing      # each defect kept red in its own verified slice, billing without them
+shrt run billing            # green: propose and approve it
 ```
 
-`chain pin` runs `-keep-going` first if the latest run did not reach every step, then repeatedly
-slices the first failing step (with the failing steps that read it, fail the same call the same way
-or with list items ignoring the same request filter, or are failing reads with no write between),
-cuts them from the chain, adds `Kept red in <slice>: <steps>.` to its description and `Pins <step>
-<rpc> <field>=<got>, ...` to the slice's (the pins and pinned values the gate's `KEPT RED` line names), and re-runs
-until it passes. A pinned read keeps the last earlier read of its field that passed, when kept
-writes lie between (`checkpoint:`), so a later defect in an earlier write fails there and is
-named. It stops when a slice does not reproduce or a FINDING or intermittent failure explains the
-red. Remove the red slice and plan again once the defect is fixed.
+- `chain pin` slices the first failing step, with the steps failing with it, cuts them from the chain, and re-runs until the chain passes.
+- It notes `Kept red in <slice>` in the chain's description and the pins in the slice's.
+- It stops when a slice does not reproduce, or a FINDING or intermittent failure explains the red.
+- Once the defect is fixed, remove the slice and plan again.
 
 **No safe spot yet: `shrt diff`.**
 
 ```bash
-shrt diff <name>                                 # latest run vs the latest earlier non-replay
-shrt diff <name> <run-a> <run-b>                 # any two; ids, latest, latest~N
-shrt diff <name> [<run>] -step <id>[,<id>]       # each step's request and response, as recorded
+shrt diff <name>                             # latest run against the latest earlier non-replay
+shrt diff <name> <run-a> <run-b>             # any two: ids, latest, latest~N
+shrt diff <name> [<run>] -step <id>[,<id>]   # those steps' requests and responses, as recorded
 ```
 
-It masks as verify does. It compares two runs, it is not a verdict: if run A was wrong, "no
-differences" means B is wrong the same way.
+It masks as verify does. It is not a verdict: if run A was wrong, "no differences" means B is wrong the same way.
 
-## 10. Find the chain first: which one exercises this rpc, or asserts this code
+## 10. Find the chain first
 
 ```bash
 shrt chain which -code 1218
@@ -545,17 +303,11 @@ shrt chain which -rpc InvoiceService/PayInvoice
 shrt chain which -rpc PayInvoice -code 1204 -json
 ```
 
-1. **`-rpc`, `-code` or both** (both intersect). `-code` matches an `equals` on the envelope code,
-   a `code_fields` detail (`app_code`, `reason`), `transport.code` or `transport.http_status`. An
-   `app_code` and a `reason` seen together in a run record or declared together in a failure count
-   as one refusal.
-2. **`asserted` is a chain's claim; `OBSERVED` means a local run record reached the step**, with
-   what the newest such run got, even against the assertion. Run records are machine-local. Under
-   `-rpc`, a write step acting on a record whose state the chain shows says so:
-   `called on an order in PENDING, lines of 3 items`.
-3. **Paste the `reproduce:` line**, replacing `<fresh>` in `-var <name>=<fresh>`.
-4. **No match exits 1.** Under `-code`, steps whose run record carried an unasserted code are listed
-   with a reproduce command instead.
+- `-rpc`, `-code` or both; both intersect. `-code` matches the envelope code, a `code_fields` detail, `transport.code` or `transport.http_status`.
+- `asserted` is a chain's claim. `OBSERVED` means a local run record reached the step. Run records are machine-local.
+- Under `-rpc`, each write step says the state and item count it acted on.
+- Paste the `reproduce:` line, replacing `<fresh>`.
+- No match exits 1. Under `-code`, steps whose run carried the code unasserted are listed with a reproduce command.
 
 ## 11. A step failed: get the minimal reproduction
 
@@ -566,63 +318,36 @@ shrt chain lint .shrt/scratch/probe.yaml
 shrt chain slice billing -step pay_invoice_twice -write probe -verify -run latest
 ```
 
-1. **Read the reason on every kept step.** It keeps the producers of what kept steps reference,
-   the contracts' prerequisites, earlier writes on an entity the kept steps use, and earlier writes
-   sending a unique value (id, unique or idempotency field; any field without a contract) the target
-   sends again, ignoring case. A kept step that failed in the source run after an answer loses those
-   expectations (`relaxed:`), except a kept write failing on a field the target also fails: that is
-   the bug, so it stays (`kept failing:`), and `-verify` runs past it as the source run did (`shrt
-   run` of the slice stops there, `-keep-going` reaches the target).
-2. **Read `WARNING possible under-inclusion`** before trusting the size: a dropped earlier write
-   can be state the target needed, and the slice can go green without it. A contract prerequisite
-   no earlier step of the source calls (`-v`) was unmet in the source run too; the slice does not add it.
-   Put steps back with `-keep id[,id]`; the word `writes` keeps every earlier write and combines
-   with ids: `-keep writes,check_stock`.
-3. **`-write [name]`, then `chain lint` it by path.** Without a path it lands in `.shrt/scratch/`
-   (`<chain>-slice-<step>.yaml` by default), which no gate, lint or hollow sweep reads: run it by
-   path. Lint by path skips the unasserted-timestamp and `envelope-only` warnings for a chain
-   outside `paths.chains`: they matter for the suite, not for a repro (`-strict` keeps them). A
-   value with a slash is a path. A slice of the same chain and step is replaced in place; any other
-   file is refused, the source chain's own file too when the slice drops a step or an expectation
-   of it (a slice keeping every step as written only records its verdict there).
-4. **`-verify` turns the slice into a receipt** (against `-run <id>`, latest when omitted). It runs the slice 3 times and
-   compares the target step's verdict with the source run's: envelope code, reason and app code,
-   transport refusal, and each expectation's pass, want and got; when those match and the target
-   passed in the source run, the slice must drift exactly the paths the source run drifted against
-   its safe spot (`drifted: <path> source got=.., slice got=..`). It writes the source run's vars
-   into the slice, except fresh vars a kept write interpolates, which you must pass
-   (`-var name=<fresh>`).
+1. **Read the reason on every kept step.** It keeps the producers of what kept steps reference, contract prerequisites, earlier writes on the same entities, and earlier writes of a unique value the target sends again. A kept step that failed in the source run loses its expectations, unless it is a write failing on the target's field. That one stays, so run the slice with `-keep-going` to reach the target.
+2. **Read `WARNING possible under-inclusion`** before trusting the size. A dropped write can be state the target needed. Put steps back with `-keep id[,id]`; `-keep writes,<id>` keeps every earlier write too.
+3. **`-write [name]`, then lint it by path.** Without a path it lands in `.shrt/scratch/`, which no gate, lint or hollow sweep reads; run it by path. A value with a slash is a path. A slice never overwrites the chain it drops steps from.
+4. **`-verify` makes the slice a receipt.** It runs the slice 3 times and compares the target's verdict with the source run's: envelope code, reason, transport refusal, and each expectation's want and got. Pass a fresh `-var name=<fresh>` when it asks.
+5. **`-minimize`** first drops each step no kept step reads, when a run without it fails the same way.
 
-| verdict (exit) | what it means | what to do |
+| verdict (exit) | means | do |
 |---|---|---|
-| `reproduced` (0) | verdicts match in every counted run; dropped writes on kept entities are a `note:`, the slice did without them | nothing; `-write` records it in the description |
+| `reproduced` (0) | verdicts match in every counted run | nothing; `-write` records it |
 | `NOT REPRODUCED` (1) | the verdict differs | run the `next:` line |
-| `intermittent: reproduced k/n` (1) | flaky there; a run that did not reach the target, or in which a kept step that passed in the source failed, is not counted | keeping more steps will not help |
-| `DID NOT RUN` (3) | the target was never answered | read why the slice run stopped, printed under it |
-| `INCONCLUSIVE` (3) | a kept step that passed in the source run fails in the slice, so a match can be chance; another target; the source never evaluated the failing expectation; or the run a passing target's drift is measured against is gone | run the `next:` line, or `-keep writes` for every earlier write |
-| `chain slice <c> -without <id> -verify` | runs the chain without it and lists the steps that failed and now pass, those failing with another code or got (`FAILS DIFFERENTLY`, exit 3: it is involved), those failing exactly as before (another cause, exit 1, `STILL FAILS` when no other; INCONCLUSIVE, exit 3, when they read what the left-out steps write), and those that fail only without it; cleared steps acting on a record the left-out step changed are marked `may need that state: not proof` | test a suspect write |
+| `intermittent: reproduced k/n` (1) | flaky there | keeping more steps will not help |
+| `DID NOT RUN` (3) | the target was never answered | read why, printed under it |
+| `INCONCLUSIVE` (3) | a kept step that passed in the source fails here, or the source never evaluated the expectation | run the `next:` line, or `-keep writes` |
 
-Until a verdict, a slice is a hypothesis. `-run latest` picks the run `shrt diff` compares: the
-newest record, but a `shrt run` over a verify replay recorded right after it, unless only the
-replay failed or drifted the step (for `-without`: unless their failed steps differ); it refuses
-(3) if that run left the target unevaluated.
+`-without <id> -verify` runs the chain without those steps:
 
-**A chain written by hand is proven by running it, not by slicing it:**
+- `STILL FAILS` (exit 1): every failing step fails exactly as before, so the left-out write is not their cause.
+- `FAILS DIFFERENTLY` (exit 3): the write is involved. Run the `next:` slice instead of clearing it.
+- Steps that pass without it may only need its state.
+
+Until a verdict, a slice is a hypothesis. `-run latest` picks the run `shrt diff` compares, and refuses (exit 3) if that run left the target unevaluated.
+
+**A chain written by hand is proven by running it, not slicing it:**
 
 ```bash
 shrt run .shrt/scratch/repro.yaml -repeat 3
 ```
 
-It runs the chain 3 times exactly as written, changes nothing in it, and compares each run with the
-first as `-verify` compares a slice: the same steps fail, with the same envelope code, refusal,
-failed expectations and got values, ids, fixture values and clock offsets masked. Each run goes past
-a failed step, so every step of the repro is checked every time (a step reading a failed step's
-value is skipped); `-keep-going=false` stops each run at its first failure and names the steps left
-unrun. `reproduced 3/3: <step> ...` (exit 0) is the receipt, with what each failed step answered
-(`answered status.code "SUCCESS"`), its failed expectations and the suspect; `NOT REPRODUCED` (1)
-lists what differed from run 1, `passed 3/3` (1) means nothing failed, `DID NOT RUN` (3) a run got
-no answer. The last line states the outcome with its exit code, `exit 0: reproduced 3/3; -repeat
-exits 0 when every run failed the same way, ...`: under `-repeat`, 0 means the failure is there.
-Every run gets a fresh `tag` unless you pass `-var tag=`, and then each later run gets your value
-plus a fresh suffix. To keep a receipt against a source chain's run instead, slice the source with
-`-keep <ids of the minimal chain> -verify`.
+- It runs the chain 3 times unchanged, each run past a failed step, and compares each run with the first.
+- `reproduced 3/3` (exit 0) is the receipt. `NOT REPRODUCED` (1) lists what differed; `passed 3/3` (1) means nothing failed; `DID NOT RUN` (3) a run got no answer.
+- Under `-repeat`, exit 0 means the failure is there.
+- Each run gets a fresh `tag` unless you pass `-var tag=`.
+- `-keep-going=false` stops each run at its first failure.
