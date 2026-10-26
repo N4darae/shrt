@@ -65,6 +65,7 @@ type Client struct {
 	http     *http.Client
 	headers  map[string]string
 	hostOver string
+	refusal  error
 	chain    Handler
 }
 
@@ -75,6 +76,7 @@ type Options struct {
 	Headers      map[string]string
 	HTTPClient   *http.Client
 	Middlewares  []Middleware
+	Refusal      error
 }
 
 func New(opts Options) *Client {
@@ -115,6 +117,7 @@ func New(opts Options) *Client {
 		http:     hc,
 		headers:  opts.Headers,
 		hostOver: opts.HostOverride,
+		refusal:  opts.Refusal,
 	}
 	c.chain = Wrap(c.send, opts.Middlewares...)
 	return c
@@ -144,7 +147,12 @@ func (c *Client) Raw(ctx context.Context, call *Call) (*Result, error) {
 
 func (c *Client) BaseURL() string { return c.baseURL }
 
+func (c *Client) Refusal() error { return c.refusal }
+
 func (c *Client) send(ctx context.Context, call *Call) (*Result, error) {
+	if c.refusal != nil {
+		return nil, c.refusal
+	}
 	url := c.baseURL + normalizeProcedure(call.Procedure)
 	body := call.Body
 	if len(body) == 0 {

@@ -269,6 +269,7 @@ Produced by resolving each form against a fixture scope:
 | `headers` | map string → string |  | Headers added to every request. Never the auth header when `auth` is declared. |
 | `timeout` | string |  | Per-request timeout, e.g. `30s`. Default 30s. A call with no answer in time was still sent. |
 | `build_header` | string |  | A response header carrying the server's build (`X-Server-Version`), stamped into each run record as `build`. `run -build <label>` overrides it. |
+| `allow_hosts` | list of string |  | Hosts other than this machine that shrt may send to, e.g. `[staging.example.com]`. `base_url` and `host_override` must each be loopback (`localhost`, `127.0.0.1`, `::1`) or listed here, or every sending command refuses before the first call. List only a test backend that may take writes. |
 
 ### `descriptor`
 

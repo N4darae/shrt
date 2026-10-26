@@ -44,6 +44,7 @@ func Build(ctx context.Context, cfg *config.Config, cat *catalog.Catalog, obs fu
 		HostOverride: cfg.Target.HostOverride,
 		Timeout:      timeout,
 		Headers:      cfg.Target.Headers,
+		Refusal:      cfg.Target.HostRefusal(),
 	})
 
 	deps := &Deps{Catalog: cat, Client: base}
@@ -67,6 +68,7 @@ func Build(ctx context.Context, cfg *config.Config, cat *catalog.Catalog, obs fu
 		Timeout:      timeout,
 		Headers:      cfg.Target.Headers,
 		Middlewares:  mws,
+		Refusal:      cfg.Target.HostRefusal(),
 	})
 	return deps, nil
 }

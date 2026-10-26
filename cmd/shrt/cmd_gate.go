@@ -931,6 +931,9 @@ func runGate(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	if err := e.cfg.Target.HostRefusal(); err != nil {
+		return err
+	}
 	chains, err := gateChains(e, only)
 	if err != nil {
 		return err

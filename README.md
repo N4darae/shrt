@@ -59,7 +59,8 @@ re-run `shrt init` to add one later. Export the env vars
 `shrt run` refuses before sending anything.
 
 Only `run` (not `-dry-run`), `verify` (not `-run <id>`), `gate` and `chain slice -verify` send
-traffic.
+traffic, and only to this machine or a host in `target.allow_hosts` (`GRAMMAR.md` §4): chains
+create and change data, so a non-loopback `base_url` is refused until a person lists it.
 
 ## Commands
 

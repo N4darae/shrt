@@ -140,6 +140,7 @@ var notes = map[string]string{
 	"Target.headers":       "Headers added to every request. Never the auth header when `auth` is declared.",
 	"Target.timeout":       "Per-request timeout, e.g. `30s`. Default 30s. A call with no answer in time was still sent.",
 	"Target.build_header":  "A response header carrying the server's build (`X-Server-Version`), stamped into each run record as `build`. `run -build <label>` overrides it.",
+	"Target.allow_hosts":   "Hosts other than this machine that shrt may send to, e.g. `[staging.example.com]`. `base_url` and `host_override` must each be loopback (`localhost`, `127.0.0.1`, `::1`) or listed here, or every sending command refuses before the first call. List only a test backend that may take writes.",
 
 	"Auth.call":           "The login rpc.",
 	"Auth.body":           "Its request body. `${env.X}` for credentials, never a literal; only `${env.*}`, `${uuid}` and clock forms resolve here.",

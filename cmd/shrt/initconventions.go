@@ -117,6 +117,7 @@ func observeEnvelopeOK(ctx context.Context, cfg *config.Config, cat *catalog.Cat
 		HostOverride: cfg.Target.HostOverride,
 		Timeout:      timeout,
 		Headers:      cfg.Target.Headers,
+		Refusal:      cfg.Target.HostRefusal(),
 	})
 	res, err := client.Do(ctx, &transport.Call{Procedure: m.Procedure(), Body: body})
 	if err != nil {

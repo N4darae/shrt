@@ -41,6 +41,7 @@ type Target struct {
 	Headers      map[string]string `yaml:"headers,omitempty"`
 	Timeout      string            `yaml:"timeout,omitempty"`
 	BuildHeader  string            `yaml:"build_header,omitempty"`
+	AllowHosts   []string          `yaml:"allow_hosts,omitempty"`
 }
 
 type Descriptor struct {
