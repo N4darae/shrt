@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"io/fs"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -778,7 +779,7 @@ func TestSliceExitCodesAreDocumented(t *testing.T) {
 	if !strings.Contains(sliceExitCodes, "  3  ") || !strings.Contains(sliceExitCodes, "DID NOT RUN") || strings.Contains(sliceExitCodes, "  2  ") {
 		t.Errorf("chain slice -h must state the 0/1/3 exit codes:\n%s", sliceExitCodes)
 	}
-	raw, _ := coredistillation.Docs.ReadFile("README.md")
+	raw, _ := fs.ReadFile(coredistillation.Docs, "README.md")
 	if _, row, _ := strings.Cut(string(raw), "| `shrt chain slice <c> -step <id>` |"); !strings.Contains(row, "DID NOT RUN") {
 		t.Error("README's command table must give chain slice its exit codes")
 	}

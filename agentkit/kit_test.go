@@ -96,7 +96,7 @@ func TestDocAssetsShipEveryDistillationDoc(t *testing.T) {
 	shipped := append([]string{}, coredistillation.DocNames...)
 	sort.Strings(shipped)
 	if strings.Join(onDisk, ",") != strings.Join(shipped, ",") {
-		t.Fatalf("core_distillation holds %v but the kit ships %v\n"+
+		t.Fatalf("docs/agent holds %v but the kit ships %v\n"+
 			"the kit embeds the distillation directly, so a doc added there must be listed in DocNames "+
 			"or adopting repos never see it", onDisk, shipped)
 	}
@@ -126,7 +126,7 @@ func sortedKeys(m map[string]bool) []string {
 
 func distillationDir() string {
 	if st, err := os.Stat("../core_distillation"); err == nil && st.IsDir() {
-		return "../core_distillation"
+		return "../core_distillation/docs/agent"
 	}
-	return ".."
+	return "../docs/agent"
 }

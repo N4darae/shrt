@@ -428,7 +428,7 @@ func TestTheReadmeGateRunsTheStaticChecksThenExitsAsShrtGateDoes(t *testing.T) {
 	if _, err := exec.LookPath("bash"); err != nil {
 		t.Skip("no bash")
 	}
-	_, section, _ := strings.Cut(string(mustRead(t, "../../README.md")), "### CI gate")
+	_, section, _ := strings.Cut(string(mustRead(t, "../../docs/agent/README.md")), "### CI gate")
 	_, block, _ := strings.Cut(section, "```bash\n")
 	script, _, ok := strings.Cut(block, "```")
 	if !ok {

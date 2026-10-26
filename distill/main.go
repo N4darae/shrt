@@ -24,9 +24,9 @@ var target, rerun = layout()
 
 func layout() (string, string) {
 	if st, err := os.Stat("core_distillation"); err == nil && st.IsDir() {
-		return "core_distillation/GRAMMAR.md", "go run ./core_distillation/distill"
+		return "core_distillation/docs/agent/GRAMMAR.md", "go run ./core_distillation/distill"
 	}
-	return "GRAMMAR.md", "go run ./distill"
+	return "docs/agent/GRAMMAR.md", "go run ./distill"
 }
 
 var notes = map[string]string{

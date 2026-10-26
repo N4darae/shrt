@@ -3,6 +3,7 @@ package agentkit
 import (
 	"bytes"
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 
@@ -15,7 +16,7 @@ const (
 )
 
 func GateScript() ([]byte, error) {
-	readme, err := coredistillation.Docs.ReadFile("README.md")
+	readme, err := fs.ReadFile(coredistillation.Docs, "README.md")
 	if err != nil {
 		return nil, err
 	}

@@ -64,7 +64,7 @@ func TestEveryCommandAnswersHelpAndEveryGroupListsItsSubcommands(t *testing.T) {
 			}
 		}
 	}
-	readme := string(mustRead(t, "../../README.md"))
+	readme := string(mustRead(t, "../../docs/agent/README.md"))
 	for name := range commands {
 		if !strings.Contains(readme, "shrt "+name) {
 			t.Errorf("README never mentions `shrt %s`", name)
@@ -190,7 +190,7 @@ func TestEveryHelpCarriesItsUsageAndExitCodesInTwoKilobytes(t *testing.T) {
 	}
 	strict := []string{chain.KindUnfailable, chain.KindAssertsNone, chain.KindInertAllowFail, chain.KindExportOverwritten, chain.KindArithmetic, chain.KindEnvelopeOnly}
 	lint := strings.Join(strings.Fields(helpOf(t, "chain", "lint")), " ")
-	readme := strings.Join(strings.Fields(string(mustRead(t, "../../README.md"))), " ")
+	readme := strings.Join(strings.Fields(string(mustRead(t, "../../docs/agent/README.md"))), " ")
 	_, row, _ := strings.Cut(readme, "| `shrt chain lint [<c>]` |")
 	row, _, _ = strings.Cut(row, "| `shrt chain ls` |")
 	for _, kind := range strict {
