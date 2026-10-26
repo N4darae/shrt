@@ -624,12 +624,13 @@ func (p *Plan) effectWiring(lib *Library, st *chain.Step, c *RPCContract, field 
 }
 
 func (p *Plan) readAfterMoves(lib *Library, unread map[string][]string) {
+	r := p.effectRules(lib)
 	for _, st := range append([]*chain.Step{}, p.Chain.Steps...) {
 		at := st.ID
 		reserved := map[string]bool{}
 		for _, e := range unread[st.ID] {
 			prod := p.stepByID(e)
-			s := p.effectRules(lib).byEntity[canonicalCall(p.cat, prod.Call)]
+			s := r.byEntity[canonicalCall(p.cat, prod.Call)]
 			if s == nil {
 				continue
 			}
@@ -659,6 +660,11 @@ func (p *Plan) readAfterMoves(lib *Library, unread map[string][]string) {
 				if sf.Name == leaf {
 					read.Expect = append(read.Expect, chain.Expectation{Path: en.carrier + "." + leaf, Equals: "${" + prod.ID + "." + en.idPath + "}"})
 				}
+			}
+			if r.increase[canonicalCall(p.cat, st.Call)] != nil {
+				before := copyStep(read, p.freeProbeID(base+"_before_"+st.ID, reserved))
+				before.Description = fmt.Sprintf("the %s as it stands before %s, read first so a read that answers from what it saw before the write fails %s.", en.carrier, st.ID, read.ID)
+				p.insertBefore(st.ID, before)
 			}
 			p.insertAfter(at, read)
 			at = read.ID
@@ -717,6 +723,9 @@ func (p *Plan) effectPass(lib *Library, r *effectRules, apply bool) (map[string]
 				p.moveStock(md, e, s.sign*q, lit && out == outcomeSuccess)
 				if s.at != "" && md.known[e] && md.set(st, s.at, md.level[e]) {
 					mark("increase", st.ID)
+				}
+				if out == outcomeSuccess && md.known[e] && p.isTargetStep(st.ID) {
+					md.pending, md.waiting = st, []string{e}
 				}
 			}
 		}
