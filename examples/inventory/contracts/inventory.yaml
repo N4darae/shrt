@@ -1,0 +1,110 @@
+apiVersion: shrt/contract/v1
+domain: inventory
+description: Items and their stock on hand. Every rpc except Login needs the bearer token Login issues.
+failures:
+    - connect_code: unauthenticated
+      reason: Unauthenticated
+      when: the Authorization header is missing, or its token is unknown or expired
+      scope: all
+rpcs:
+    inventory.v1.AuthService/Login:
+        summary: Exchange the demo account's username and password for a bearer token valid for one hour.
+        requires_role: [NONE]
+        required: [NONE]
+        fields:
+            username:
+                note: the account name, read from the environment
+            password:
+                note: the account password, read from the environment, never a literal
+        exports:
+            access_token: the bearer token every other rpc sends in Authorization
+            expires_at: unix seconds, one hour after the login
+        failures:
+            - code: 1001
+              reason: BadCredentials
+              when: the username is unknown or the password does not match it
+        source: [main.go]
+        status: draft
+    inventory.v1.ItemService/CreateItem:
+        summary: Add an item with zero stock on hand.
+        requires_role: [NONE]
+        required: [sku, name]
+        fields:
+            sku:
+                value: sku-${vars.tag}
+                note: unique, trimmed, compared exactly as stored
+            name:
+                value: Widget ${vars.tag}
+                note: display name, required non-blank, stored trimmed
+        effects:
+            qty_on_hand: zero
+        exports:
+            item: the created item; id_item feeds GetItem and AddStock
+        failures:
+            - connect_code: invalid_argument
+              reason: SkuRequired
+              field: sku
+              when: sku is empty or only whitespace
+            - connect_code: invalid_argument
+              reason: NameRequired
+              field: name
+              when: name is empty or only whitespace
+            - code: 1201
+              reason: SkuTaken
+              when: another item already has this sku
+              unique: {case: exact, trim: true}
+        source: [main.go]
+        status: draft
+    inventory.v1.ItemService/GetItem:
+        summary: Read one item, including its stock on hand, by id.
+        requires_role: [NONE]
+        required: [id_item]
+        fields:
+            id_item:
+                from: inventory.v1.ItemService/CreateItem->item.id_item
+                checked_by: app_lookup
+        aliases:
+            before:
+                note: read before the stock-changing step
+            after:
+                note: read after the stock-changing step
+        exports:
+            item: the stored item; qty_on_hand is what AddStock moves
+        failures:
+            - connect_code: invalid_argument
+              reason: IdRequired
+              field: id_item
+              when: id_item is empty
+            - code: 1204
+              reason: ItemNotFound
+              when: no item has this id
+        source: [main.go]
+        status: draft
+    inventory.v1.ItemService/AddStock:
+        summary: Increase an item's stock on hand by qty.
+        requires_role: [NONE]
+        required: [id_item]
+        fields:
+            id_item:
+                from: inventory.v1.ItemService/CreateItem->item.id_item
+                checked_by: app_lookup
+            qty:
+                value: "5"
+                note: units to add, must be greater than zero
+        effects:
+            qty_on_hand: {increase: qty}
+        exports:
+            qty_on_hand: stock on hand after the addition
+        failures:
+            - connect_code: invalid_argument
+              reason: IdRequired
+              field: id_item
+              when: id_item is empty
+            - code: 1203
+              reason: InvalidQty
+              when: qty is zero or negative
+            - code: 1204
+              reason: ItemNotFound
+              when: no item has this id
+        source: [main.go]
+        status: draft

@@ -1,0 +1,73 @@
+syntax = "proto3";
+
+package inventory.v1;
+
+option go_package = "github.com/N4darae/shrt/examples/inventory/gen/inventory/v1;inventoryv1";
+
+message Status {
+  string code = 1;
+  string message = 2;
+  repeated Detail details = 3;
+}
+
+message Detail {
+  int32 app_code = 1;
+  string reason = 2;
+}
+
+service AuthService {
+  rpc Login(LoginRequest) returns (LoginResponse);
+}
+
+message LoginRequest {
+  string username = 1;
+  string password = 2;
+}
+
+message LoginResponse {
+  Status status = 1;
+  string access_token = 2;
+  int64 expires_at = 3;
+}
+
+service ItemService {
+  rpc CreateItem(CreateItemRequest) returns (CreateItemResponse);
+  rpc GetItem(GetItemRequest) returns (GetItemResponse);
+  rpc AddStock(AddStockRequest) returns (AddStockResponse);
+}
+
+message Item {
+  string id_item = 1;
+  string sku = 2;
+  string name = 3;
+  int64 qty_on_hand = 4;
+}
+
+message CreateItemRequest {
+  string sku = 1;
+  string name = 2;
+}
+
+message CreateItemResponse {
+  Status status = 1;
+  Item item = 2;
+}
+
+message GetItemRequest {
+  string id_item = 1;
+}
+
+message GetItemResponse {
+  Status status = 1;
+  Item item = 2;
+}
+
+message AddStockRequest {
+  string id_item = 1;
+  int64 qty = 2;
+}
+
+message AddStockResponse {
+  Status status = 1;
+  int64 qty_on_hand = 2;
+}
