@@ -88,14 +88,12 @@ It tells the planner that stock read after an `AddStock` should have grown by `q
 
 ```bash
 shrt contract plan -all -write
-shrt contract plan GetItem@before AddStock GetItem@after -write -name stock-flow
 ```
 
-The first command writes one chain per rpc. Each one calls its rpc the normal way and then probes
-it: the boundary values in the contract, a missing token and a bad one, an id nobody created, a
-duplicate sku. The second composes a flow that reads an item, adds stock, and reads it again,
-asserting the new stock from the `effects` line. The planner wrote all five chains, 83 steps
-between them.
+This writes one chain per rpc, four chains and 53 steps in all. Each one calls its rpc the normal
+way and then probes it: the boundary values in the contract, a missing token and a bad one, an id
+nobody created, a duplicate sku. Around the first `AddStock` call the planner reads the item once
+before and once after, and the read after asserts the stock the `effects` line works out.
 
 ### 5. Run everything and approve the baseline
 
@@ -105,7 +103,7 @@ shrt confirm -all -note "release 1 of the inventory demo"
 shrt confirm -all -approve -by you@example.com
 ```
 
-`gate` sends every chain once, and all five pass. `confirm -all` proposes each passing run as a
+`gate` sends every chain once, and all four pass. `confirm -all` proposes each passing run as a
 chain's safe spot and prints a table of what was run and which refusals each chain asserts. Only a
 person approves: an agent driving shrt is told to show that table and wait for a yes. Once approved,
 each response field becomes part of the baseline, including fields no assertion checks.
@@ -119,26 +117,25 @@ shrt gate
 ```
 
 ```
-PASS       inventory-addstock
+FAIL       inventory-addstock    regression: get_item_after_add_stock (ItemService/GetItem) item.qty_on_hand want=5 got=0; unclear: write add_stock (ItemService/AddStock) or the read
 PASS       inventory-createitem
 PASS       inventory-getitem
 PASS       inventory-login
-FAIL       stock-flow            regression: get_item_after (ItemService/GetItem) item.qty_on_hand want=5 got=0; unclear: write add_stock (ItemService/AddStock) or the read
 ...
-shrt gate: FAIL: 1 of 5 chain(s) failed; details: shrt verify <chain>, or shrt run <chain> -keep-going
+shrt gate: FAIL: 1 of 4 chain(s) failed; details: shrt verify <chain>, or shrt run <chain> -keep-going
 ```
 
 Restarting the service threw away the token shrt had cached. The gate notices the refusal and may
-hold a fresh token for 30 seconds to tell a restart from sessions that end too early; that is the
-pause you see. The gate exits 1, so in CI it fails the build.
+hold a fresh token for up to 30 seconds to tell a restart from sessions that end too early; that is
+the pause you see. The gate exits 1, so in CI it fails the build.
 
-`shrt verify stock-flow` shows the evidence. `AddStock` answered 5, but the read after it still says
-0:
+`shrt verify inventory-addstock` shows the evidence. `AddStock` answered 5, but the read after it
+still says 0, the stock the read before it saw:
 
 ```
-stock-flow: DRIFT (regression), 1 step(s) changed vs safe spot ...; first: get_item_after (ItemService/GetItem) item.qty_on_hand want=5 got=0; unclear: write add_stock (ItemService/AddStock) or the read: answered qty_on_hand=5, but GetItem read 0
-  add_stock sent {"id_item":"item-16","qty":"5"}
-  [get_item_after] changed    item.qty_on_hand want=5 got=0
+inventory-addstock: DRIFT (regression), 1 step(s) changed vs safe spot ...; first: get_item_after_add_stock (ItemService/GetItem) item.qty_on_hand want=5 got=0; unclear: write add_stock (ItemService/AddStock) or the read: answered qty_on_hand=5, but GetItem read 0
+  add_stock sent {"id_item":"item-11","qty":"5"}
+  [get_item_after_add_stock] changed    item.qty_on_hand want=5 got=0
 ```
 
 Stop the service with `kill %1` when you are done. In a real repository you commit `.shrt/config.yaml`,
