@@ -244,7 +244,11 @@ func initRepo(ctx context.Context, args []string, loginUnsent *bool) error {
 		case wroteConfig:
 			fmt.Print("\n" + config.ConventionsGuideFor(guidePath))
 			if unobserved != "" {
-				fmt.Printf("init did not read envelope_ok itself: %s. Export the login credentials and re-run init to have it written.\n", unobserved)
+				then := "Export the login credentials and re-run init to have it written."
+				if loaded.Target.HostRefusal() != nil {
+					then = "Re-run init once the host is allowed to have it written."
+				}
+				fmt.Printf("init did not read envelope_ok itself: %s. %s\n", unobserved, then)
 			}
 			fmt.Println()
 		default:

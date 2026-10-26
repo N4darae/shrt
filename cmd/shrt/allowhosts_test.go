@@ -23,3 +23,24 @@ func TestRunAndGateRefuseAHostNotAllowedButDryRunStillResolves(t *testing.T) {
 		t.Fatalf("gate: want one refusal up front, got %v", err)
 	}
 }
+
+func TestInitAgainstAHostNotAllowedSaysToAllowItNotToExportCredentials(t *testing.T) {
+	chdirToFreshCLIWorkspace(t, "http://api.example.test")
+	writeFile(t, ".shrt/config.yaml", `target:
+    base_url: http://api.example.test
+descriptor:
+    file: .shrt/descriptor.binpb
+auth:
+    call: AuthService/Login
+    body: {username: "${env.API_USER}", password: "${env.API_PASSWORD}"}
+    token_path: access_token
+`)
+	t.Setenv("API_USER", "u")
+	t.Setenv("API_PASSWORD", "p")
+	out := captureStdout(t, func() {
+		_ = runInit(context.Background(), []string{"-build=false", "-agents=false", "-force-config", "-base-url", "http://api.example.test"})
+	})
+	if !strings.Contains(out, "allow_hosts") || strings.Contains(out, "Export the login credentials") {
+		t.Fatalf("want the host refusal and no credentials advice:\n%s", out)
+	}
+}
