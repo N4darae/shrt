@@ -1,6 +1,7 @@
 # shrt docs
 
-What an agent needs to compose an RPC chain and a contract. `.claude/skills/shrt/SKILL.md` routes
+What an agent needs to compose an RPC chain and a contract for a backend that speaks the Connect
+protocol (JSON over HTTP POST; a gRPC-only server does not answer). `.claude/skills/shrt/SKILL.md` routes
 here; `shrt init` installs these four files into `.shrt/docs/`:
 
 | file | job |

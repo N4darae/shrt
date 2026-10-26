@@ -1,7 +1,7 @@
 # shrt
 
-Snapshot the valid API call chains of a Connect/gRPC backend so an agent can look one up
-instead of tracing for it.
+Snapshot the valid API call chains of a backend that speaks the Connect protocol, so an agent can
+look one up instead of tracing for it.
 
 ## Why
 
@@ -15,7 +15,9 @@ and tokens hunting for the rest of the path, and pays that cost again next time.
 
 shrt builds a descriptor set from the backend's proto sources (`shrt catalog build`, which runs
 `buf build` by default), so every method and message type comes from the protos the server is built
-from. It calls the backend as Connect requests: JSON over HTTP POST.
+from. Every call uses the Connect protocol, JSON over HTTP POST, and never gRPC's binary framing
+over HTTP/2. A server built with connect-go answers both; a server that speaks only gRPC, such as
+plain grpc-go, does not answer shrt.
 
 A chain is a YAML file under `.shrt/chains/`. It is an ordered list of steps, and a step names an
 rpc, its request body, its assertions and what it exports. A body value is a literal or a `${...}`
