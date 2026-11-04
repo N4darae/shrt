@@ -204,6 +204,10 @@ func shortRPC(full string) string {
 }
 
 func ScaffoldChain(name, description string, refs, ids []string, lib *Library, cat *catalog.Catalog) ([]byte, []string, error) {
+	lib, err := lib.forPlanning(cat)
+	if err != nil {
+		return nil, nil, err
+	}
 	p, err := scaffoldPlan(name, "the chain", refs, ids, lib, cat)
 	if err != nil {
 		return nil, nil, err
