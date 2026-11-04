@@ -71,12 +71,16 @@ func BuildPlanWith(targets []string, lib *Library, cat *catalog.Catalog, name st
 	if len(targets) == 0 {
 		return nil, fmt.Errorf("nothing to plan: name at least one rpc")
 	}
+	lib, err := lib.forPlanning(cat)
+	if err != nil {
+		return nil, err
+	}
 	nodes := []string{}
 	labels := []string{}
 	seen := map[string]bool{}
 	repeats := map[string]int{}
 	for _, raw := range targets {
-		node, m, err := ResolveTarget(raw, lib, cat)
+		node, m, err := resolveTarget(raw, lib, cat)
 		if err != nil {
 			return nil, err
 		}
@@ -244,6 +248,14 @@ func ProbeWhy(label string) string {
 }
 
 func ResolveTarget(raw string, lib *Library, cat *catalog.Catalog) (string, *catalog.Method, error) {
+	lib, err := lib.forPlanning(cat)
+	if err != nil {
+		return "", nil, err
+	}
+	return resolveTarget(raw, lib, cat)
+}
+
+func resolveTarget(raw string, lib *Library, cat *catalog.Catalog) (string, *catalog.Method, error) {
 	rpc, alias := SplitNode(raw)
 	m, err := cat.Lookup(rpc)
 	if err != nil {
@@ -396,6 +408,10 @@ func ArmedOneofMembers(c *RPCContract, alias string) []string {
 }
 
 func ScaffoldSteps(refs, ids []string, lib *Library, cat *catalog.Catalog) ([]*yaml.Node, []string, error) {
+	lib, err := lib.forPlanning(cat)
+	if err != nil {
+		return nil, nil, err
+	}
 	p, err := scaffoldPlan("", "the step", refs, ids, lib, cat)
 	if err != nil {
 		return nil, nil, err
