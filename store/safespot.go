@@ -121,6 +121,11 @@ func (s *Store) LoadSafeSpot(chainName string) (*SafeSpot, error) {
 		}
 		return nil, err
 	}
+	for i, st := range spot.Steps {
+		if st == nil {
+			return nil, fmt.Errorf("safe spot %s: step %d is empty, so it is not a valid approved step; the file may have been changed after it was approved", path, i+1)
+		}
+	}
 	return spot, nil
 }
 
@@ -202,6 +207,11 @@ func (spot *SafeSpot) DigestMatches() bool {
 }
 
 func (spot *SafeSpot) DigestKind() string {
+	for _, st := range spot.Steps {
+		if st == nil {
+			return ""
+		}
+	}
 	switch spot.Digest {
 	case spot.ComputeDigest():
 		return DigestCurrent

@@ -151,7 +151,7 @@ type TransportError struct {
 
 func (r *Record) Step(id string) (*StepRecord, bool) {
 	for _, s := range r.Steps {
-		if s.ID == id {
+		if s != nil && s.ID == id {
 			return s, true
 		}
 	}
@@ -171,6 +171,11 @@ func (r *Record) UnmarshalJSON(data []byte) error {
 	decoded.plain = (*plain)(r)
 	if err := json.Unmarshal(data, &decoded); err != nil {
 		return err
+	}
+	for i, st := range r.Steps {
+		if st == nil {
+			return fmt.Errorf("step %d is empty: a run must contain step objects", i+1)
+		}
 	}
 	r.Format, r.Seal, r.sealClaim = 0, "", ""
 	if decoded.Seal != nil {

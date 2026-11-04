@@ -89,6 +89,9 @@ func (c *Chain) Normalize() error {
 	}
 	seen := map[string]bool{}
 	for i, s := range c.Steps {
+		if s == nil {
+			return fmt.Errorf("step %d is empty: provide a step with a call", i+1)
+		}
 		if strings.TrimSpace(s.Call) == "" {
 			return fmt.Errorf("step %d: call is required", i+1)
 		}
