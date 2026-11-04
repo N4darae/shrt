@@ -215,7 +215,7 @@ func initRepo(ctx context.Context, args []string, loginUnsent *bool) error {
 		fmt.Printf("write %s\n", loaded.Descriptor.File)
 	}
 	if loaded.Auth == nil {
-		if err := scaffoldAuth(loaded, *verbose); err != nil {
+		if err := scaffoldAuth(loaded, *verbose, wroteConfig); err != nil {
 			return err
 		}
 	} else if !wroteConfig {
@@ -266,7 +266,7 @@ func initRepo(ctx context.Context, args []string, loginUnsent *bool) error {
 		fmt.Printf("-base-url %s was NOT applied: %s/%s already existed and still says target.base_url: %s; edit it, or pass -force-config to rebuild it\n",
 			*baseURL, config.DirName, config.FileName, loaded.Target.BaseURL)
 	}
-	if loaded.Auth == nil {
+	if loaded.Auth == nil && wroteConfig {
 		fmt.Printf("declare auth: in %s/%s: nothing in the descriptor looked like a login rpc, so every authenticated call is a 401 until it exists\n",
 			config.DirName, config.FileName)
 	}
@@ -333,7 +333,7 @@ func ensureGitignore(root string, want []string) (bool, error) {
 	return true, nil
 }
 
-func scaffoldAuth(cfg *config.Config, verbose bool) error {
+func scaffoldAuth(cfg *config.Config, verbose, write bool) error {
 	cat, err := catalog.Load(cfg.Abs(cfg.Descriptor.File))
 	if err != nil {
 		return nil
@@ -343,6 +343,11 @@ func scaffoldAuth(cfg *config.Config, verbose bool) error {
 		return nil
 	}
 	best := found[0]
+	if !write {
+		fmt.Printf("auth: %s looks like a login rpc, but auth was not written because %s/%s already exists; add auth: only if this backend needs a login\n",
+			best.Method.FullName, config.DirName, config.FileName)
+		return nil
+	}
 	cfg.Auth = authFromCandidate(best, "API")
 	for _, c := range found[1:] {
 		if c.Score < loginConfidence || contract.DomainOf(c.Method) == contract.DomainOf(best.Method) {
