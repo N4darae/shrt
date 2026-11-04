@@ -258,6 +258,10 @@ func CompareMasking(spot *store.SafeSpot, rec *runner.Record, extra []string) *R
 
 func compareMasking(spot *store.SafeSpot, rec *runner.Record, extra []string, assumed map[string][]string) *Report {
 	rep := &Report{Chain: spot.Chain, SafeSpotID: spot.RunID, RunID: rec.RunID}
+	if invalid := emptyStepChanges(spot.Steps, rec.Steps); len(invalid) > 0 {
+		rep.Changes = invalid
+		return rep
+	}
 	if !config.SameTarget(spot.Target, rec.Target) {
 		rep.SafeSpotTarget, rep.RunTarget = spot.Target, rec.Target
 	}
@@ -422,6 +426,22 @@ func compareMasking(spot *store.SafeSpot, rec *runner.Record, extra []string, as
 type stepPair struct {
 	i         int
 	want, got *runner.StepRecord
+}
+
+func emptyStepChanges(was, now []*runner.StepRecord) []Change {
+	var out []Change
+	for _, input := range []struct {
+		name  string
+		steps []*runner.StepRecord
+	}{{"safe spot", was}, {"run", now}} {
+		for i, st := range input.steps {
+			if st == nil {
+				out = append(out, Change{Path: fmt.Sprintf("steps.%d", i), Kind: KindType,
+					Detail: fmt.Sprintf("the %s's step %d is empty, so it cannot be compared", input.name, i+1)})
+			}
+		}
+	}
+	return out
 }
 
 func uniqueIDs(steps []*runner.StepRecord) bool {
@@ -776,6 +796,9 @@ func expectText(path, rule string, want any) string {
 }
 
 func CompareRequests(spot *store.SafeSpot, rec *runner.Record, derived func(step, path string) bool) []Change {
+	if invalid := emptyStepChanges(spot.Steps, rec.Steps); len(invalid) > 0 {
+		return invalid
+	}
 	out := []Change{}
 	for _, p := range sameIDSteps(spot.Steps, rec.Steps) {
 		want, got := p[0], p[1]
